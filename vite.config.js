@@ -4,7 +4,7 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  base: '/granville-market-dashboard/',
+  base: '/',
   server: {
     proxy: {
       '/fred-api': {
