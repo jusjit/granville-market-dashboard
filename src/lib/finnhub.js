@@ -1,14 +1,15 @@
-const BASE = 'https://finnhub.io/api/v1'
-const API_KEY = import.meta.env.VITE_FINNHUB_KEY
+const quoteCache = new Map()
 
-export async function getQuote(symbol) {
-  const res = await fetch(`${BASE}/quote?symbol=${encodeURIComponent(symbol)}&token=${API_KEY}`)
-  if (!res.ok) throw new Error(`Finnhub ${res.status} for ${symbol}`)
+export async function prefetchQuotes(symbols) {
+  quoteCache.clear()
+  const res = await fetch(`/api/finnhub?symbols=${symbols.map(encodeURIComponent).join(',')}`)
+  if (!res.ok) throw new Error(`/api/finnhub ${res.status}`)
   const data = await res.json()
-  if (data.c == null || data.c === 0) throw new Error(`No data for ${symbol}`)
-  return {
-    price: data.c,
-    prevClose: data.pc,
-    pctChange: data.dp,
+  for (const item of data) {
+    quoteCache.set(item.symbol, item.error ? { error: item.error } : item)
   }
+}
+
+export function getQuote(symbol) {
+  return quoteCache.get(symbol) ?? { error: `${symbol} not in cache` }
 }
