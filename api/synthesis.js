@@ -40,7 +40,7 @@ export default async function handler(req, res) {
     const r = await fetch('https://api.1min.ai/api/chat-with-ai', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'API-KEY': key },
-      body: JSON.stringify({ type: 'CHAT', model: 'claude-haiku-4-5', promptObject: { prompt, isMixed: false } }),
+      body: JSON.stringify({ type: 'CHAT', model: 'claude-sonnet-4-6', promptObject: { prompt, isMixed: false } }),
     })
     if (!r.ok) { const text = await r.text(); return res.status(502).json({ error: `1min.ai ${r.status}: ${text.slice(0, 200)}` }) }
     const data = await r.json()
