@@ -4,20 +4,39 @@ const API_KEY = import.meta.env.VITE_FRED_KEY
 function buildFredUrl(seriesId, limit) {
   const params = `series_id=${seriesId}&api_key=${API_KEY}&sort_order=desc&limit=${limit}&file_type=json`
   if (import.meta.env.DEV) {
-    // Vite dev proxy strips /fred-api prefix and forwards to api.stlouisfed.org
     return `/fred-api/fred/series/observations?${params}`
   }
-  // Production: wrap direct URL through corsproxy.io
-  return `https://corsproxy.io/?url=${encodeURIComponent(`${FRED_BASE}?${params}`)}`
+  // Production: direct call won't work (no CORS), use cached JSON instead
+  return null
+}
+
+// In production, fetch the pre-built cache file committed by GitHub Actions
+let fredCachePromise = null
+async function getFredCache() {
+  if (!fredCachePromise) {
+    fredCachePromise = fetch(`${import.meta.env.BASE_URL}fred-cache.json`)
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`Cache ${r.status}`)))
+  }
+  return fredCachePromise
 }
 
 async function fetchSeries(seriesId, limit = 2) {
-  const url = buildFredUrl(seriesId, limit)
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`FRED ${res.status} for ${seriesId}`)
-  const data = await res.json()
+  if (import.meta.env.DEV) {
+    const url = buildFredUrl(seriesId, limit)
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(`FRED ${res.status} for ${seriesId}`)
+    const data = await res.json()
+    const obs = data.observations?.filter(o => o.value !== '.')
+    if (!obs?.length) throw new Error(`No data for ${seriesId}`)
+    return obs.map(o => ({ date: o.date, value: parseFloat(o.value) }))
+  }
+
+  // Production: read from cached JSON file
+  const cache = await getFredCache()
+  const data = cache[seriesId]
+  if (!data) throw new Error(`${seriesId} not in cache`)
   const obs = data.observations?.filter(o => o.value !== '.')
-  if (!obs?.length) throw new Error(`No data for ${seriesId}`)
+  if (!obs?.length) throw new Error(`No cached data for ${seriesId}`)
   return obs.map(o => ({ date: o.date, value: parseFloat(o.value) }))
 }
 
@@ -33,7 +52,6 @@ export async function fetchMacroSignals() {
   const results = {}
 
   await Promise.all([
-    // HY Credit Spread
     fetchSeries('BAMLH0A0HYM2').then(obs => {
       const [cur, prev] = obs
       results.hySpread = {
@@ -44,12 +62,11 @@ export async function fetchMacroSignals() {
         formatted: `${cur.value.toFixed(2)}%`,
         state: directionState(cur.value, prev?.value, 'Widening', 'Stable', 'Tightening', 0.05),
         stateColors: { Widening: 'red', Stable: 'yellow', Tightening: 'green' },
-        meaning: `High-yield OAS at ${cur.value.toFixed(2)}%. ${cur.value > prev?.value ? 'Spread widening signals rising credit stress.' : 'Spread tightening signals improving credit confidence.'}`,
+        meaning: `High-yield OAS at ${cur.value.toFixed(2)}%. ${cur.value > (prev?.value ?? cur.value) ? 'Spread widening signals rising credit stress.' : 'Spread tightening signals improving credit confidence.'}`,
         source: 'FRED',
       }
     }).catch(e => { results.hySpread = { id: 'hySpread', label: 'HY Credit Spread', error: e.message } }),
 
-    // 10Y Real Yield
     fetchSeries('DFII10').then(obs => {
       const [cur, prev] = obs
       results.realYield = {
@@ -65,7 +82,6 @@ export async function fetchMacroSignals() {
       }
     }).catch(e => { results.realYield = { id: 'realYield', label: '10Y Real Yield', error: e.message } }),
 
-    // 5Y5Y Inflation Forward
     fetchSeries('T5YIFR').then(obs => {
       const [cur, prev] = obs
       results.inflationFwd = {
@@ -76,16 +92,12 @@ export async function fetchMacroSignals() {
         formatted: `${cur.value.toFixed(2)}%`,
         state: directionState(cur.value, prev?.value, 'Rising', 'Stable', 'Falling', 0.03),
         stateColors: { Rising: 'red', Stable: 'yellow', Falling: 'green' },
-        meaning: `Long-run inflation expectations at ${cur.value.toFixed(2)}%. ${cur.value > 2.5 ? 'Above 2.5% suggests markets expect persistent inflation — Fed pressure.' : 'Anchored near Fed target.'}`,
+        meaning: `Long-run inflation expectations at ${cur.value.toFixed(2)}%. ${cur.value > 2.5 ? 'Above 2.5% — markets expect persistent inflation.' : 'Anchored near Fed target.'}`,
         source: 'FRED',
       }
     }).catch(e => { results.inflationFwd = { id: 'inflationFwd', label: '5Y5Y Inflation Fwd', error: e.message } }),
 
-    // Breakeven = US10Y nominal - DFII10 real; fetch both
-    Promise.all([
-      fetchSeries('DGS10'),
-      fetchSeries('DFII10'),
-    ]).then(([nomObs, realObs]) => {
+    Promise.all([fetchSeries('DGS10'), fetchSeries('DFII10')]).then(([nomObs, realObs]) => {
       const nomCur = nomObs[0].value
       const nomPrev = nomObs[1]?.value
       const realCur = realObs[0].value
