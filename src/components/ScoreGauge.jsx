@@ -26,20 +26,14 @@ function phaseDescription(phase) {
   return map[phase] ?? ''
 }
 
-export default function ScoreGauge({ score, phase }) {
+export default function ScoreGauge({ score, phase, divergenceWarning }) {
   const color = phaseColor(phase)
-
-  // Gauge arc: 180° half-circle
-  const gaugeData = [
-    { value: score },
-    { value: 100 - score },
-  ]
+  const gaugeData = [{ value: score }, { value: 100 - score }]
 
   return (
     <div className="flex flex-col items-center justify-center py-8 px-4">
       <div className="relative">
         <PieChart width={260} height={140}>
-          {/* Background track */}
           <Pie
             data={[{ value: 100 }]}
             cx={130} cy={130}
@@ -50,7 +44,6 @@ export default function ScoreGauge({ score, phase }) {
           >
             <Cell fill="#1e293b" />
           </Pie>
-          {/* Score arc */}
           <Pie
             data={gaugeData}
             cx={130} cy={130}
@@ -64,21 +57,18 @@ export default function ScoreGauge({ score, phase }) {
           </Pie>
         </PieChart>
 
-        {/* Center text overlay */}
         <div className="absolute inset-0 flex flex-col items-center justify-end pb-1">
           <span className="text-5xl font-black" style={{ color }}>{score}</span>
           <span className="text-xs text-slate-500 mt-0.5">out of 100</span>
         </div>
       </div>
 
-      {/* Zone labels */}
       <div className="flex justify-between w-[260px] text-xs mt-1 px-1">
         <span className="text-red-400">Bear</span>
         <span className="text-yellow-400">Transitional</span>
         <span className="text-green-400">Bull</span>
       </div>
 
-      {/* Phase badge */}
       <div
         className="mt-4 px-5 py-2 rounded-full text-sm font-semibold tracking-wide"
         style={{ background: `${color}22`, color, border: `1px solid ${color}55` }}
@@ -89,6 +79,15 @@ export default function ScoreGauge({ score, phase }) {
       <p className="text-xs text-slate-500 mt-2 text-center max-w-xs">
         {phaseDescription(phase)}
       </p>
+
+      {divergenceWarning && (
+        <div className="mt-4 w-full max-w-sm rounded-lg border border-amber-700/60 bg-amber-950/50 px-4 py-2.5 text-center">
+          <p className="text-xs font-semibold text-amber-400">⚠ Breadth Divergence Warning</p>
+          <p className="text-[11px] text-amber-500/80 mt-0.5">
+            SPY rising but RSP/SPY falling — composite capped at 60
+          </p>
+        </div>
+      )}
     </div>
   )
 }

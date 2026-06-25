@@ -1,6 +1,10 @@
 import { getQuote } from './finnhub'
 
-// Signal definitions — all scored from day-over-day ratio change (free Finnhub plan)
+// Neutral band: ±0.5% change vs prior close (±0.3% for IYT/SPY)
+// Breadth (RSP/SPY) scores double: 40/20/0. Max raw = 6×20 + 40 = 160.
+// Composite is normalized to 0–100 for display.
+// Divergence penalty: if SPY rising but RSP/SPY falling → cap display at 60.
+
 export const SIGNAL_DEFS = [
   {
     id: 'breadth',
@@ -8,8 +12,8 @@ export const SIGNAL_DEFS = [
     numerator: 'RSP',
     denominator: 'SPY',
     description: 'Equal-weight vs cap-weight S&P 500. Rising ratio means broad participation — bullish.',
-    bullThreshold: 0.0003,
-    bearThreshold: -0.0003,
+    neutralBand: 0.005, // ±0.5%
+    doubleWeight: true,
   },
   {
     id: 'defensive',
@@ -17,8 +21,7 @@ export const SIGNAL_DEFS = [
     numerator: 'XLP',
     denominator: 'XLY',
     description: 'Staples vs discretionary. Falling ratio means investors prefer risk — bullish.',
-    bullThreshold: -0.0003,
-    bearThreshold: 0.0003,
+    neutralBand: 0.005,
     inverted: true,
   },
   {
@@ -27,8 +30,7 @@ export const SIGNAL_DEFS = [
     numerator: 'HYG',
     denominator: 'LQD',
     description: 'High-yield vs investment-grade bonds. Rising ratio signals credit risk appetite — bullish.',
-    bullThreshold: 0.0002,
-    bearThreshold: -0.0002,
+    neutralBand: 0.005,
   },
   {
     id: 'bellwether',
@@ -36,20 +38,18 @@ export const SIGNAL_DEFS = [
     numerator: 'SOXX',
     denominator: 'SPY',
     description: 'Semiconductors vs broad market. Semis lead economic cycles — outperformance is bullish.',
-    bullThreshold: 0.0005,
-    bearThreshold: -0.0005,
+    neutralBand: 0.005,
   },
   {
     id: 'volatility',
-    label: 'Volatility (VIX Proxy)',
+    label: 'Volatility Proxy',
     numerator: 'VIXY',
     denominator: null,
-    description: 'VIX futures ETF. Low price (<15) is complacent/bullish. High (>25) signals fear/bearish.',
+    description: 'VIX futures ETF. Price below $17 is calm/bullish. Above $25 signals fear — bearish.',
     isAbsolute: true,
     absoluteBull: 17,
     absoluteBear: 25,
-    bullThreshold: -0.005, // falling price = bullish
-    bearThreshold: 0.005,
+    neutralBand: 0.005,
     inverted: true,
   },
   {
@@ -58,8 +58,7 @@ export const SIGNAL_DEFS = [
     numerator: 'SPHB',
     denominator: 'SPLV',
     description: 'High-beta vs low-volatility stocks. Rising ratio means investors are chasing risk — bullish.',
-    bullThreshold: 0.0005,
-    bearThreshold: -0.0005,
+    neutralBand: 0.005,
   },
   {
     id: 'transport',
@@ -67,106 +66,134 @@ export const SIGNAL_DEFS = [
     numerator: 'IYT',
     denominator: 'SPY',
     description: 'Transports vs broad market. Dow Theory: transport outperformance confirms economic health.',
-    bullThreshold: 0.0003,
-    bearThreshold: -0.0003,
+    neutralBand: 0.003, // ±0.3% — moves in smaller increments
   },
 ]
 
-function scoreSignal(def, ratioNow, ratioPrev) {
-  if (def.isAbsolute) {
-    const price = ratioNow
-    const change = ratioPrev !== 0 ? (ratioNow - ratioPrev) / ratioPrev : 0
-    if (price <= def.absoluteBull && change <= def.bullThreshold) return 20
-    if (price >= def.absoluteBear || change >= def.bearThreshold) return 0
-    return 10
-  }
+const MAX_RAW = 160 // 6×20 + 40 (breadth double weight)
 
-  const pctChange = ratioPrev !== 0 ? (ratioNow - ratioPrev) / ratioPrev : 0
+function scoreSignal(def, pctChange) {
+  const band = def.neutralBand
+  const effectivePct = def.inverted ? -pctChange : pctChange
 
-  if (!def.inverted) {
-    if (pctChange >= def.bullThreshold) return 20
-    if (pctChange <= def.bearThreshold) return 0
-    return 10
-  } else {
-    if (pctChange <= def.bullThreshold) return 20
-    if (pctChange >= def.bearThreshold) return 0
-    return 10
-  }
+  if (effectivePct > band) return def.doubleWeight ? 40 : 20
+  if (effectivePct < -band) return 0
+  return def.doubleWeight ? 20 : 10
 }
 
-function scoreLabel(score) {
+function scoreLabel(score, doubleWeight) {
+  if (doubleWeight) {
+    if (score === 40) return 'Bullish'
+    if (score === 0) return 'Bearish'
+    return 'Neutral'
+  }
   if (score === 20) return 'Bullish'
   if (score === 0) return 'Bearish'
   return 'Neutral'
 }
 
-function trendArrow(pctChange, inverted) {
-  if (Math.abs(pctChange) < 0.00005) return 'flat'
-  const up = pctChange > 0
-  return inverted ? (up ? 'down' : 'up') : (up ? 'up' : 'down')
+// For display purposes, normalize double-weight score back to /20
+function displayScore(score, doubleWeight) {
+  return doubleWeight ? score / 2 : score
 }
 
 export async function fetchAllSignals() {
-  const results = await Promise.all(
-    SIGNAL_DEFS.map(async (def) => {
+  // Fetch SPY separately for divergence check (already fetched in breadth, but grab it cleanly)
+  const fetchesNeeded = new Set(['SPY'])
+  SIGNAL_DEFS.forEach(d => {
+    fetchesNeeded.add(d.numerator)
+    if (d.denominator) fetchesNeeded.add(d.denominator)
+  })
+
+  // Single fetch per unique symbol
+  const quoteMap = {}
+  await Promise.all(
+    [...fetchesNeeded].map(async (symbol) => {
       try {
-        if (def.denominator) {
-          const [num, den] = await Promise.all([
-            getQuote(def.numerator),
-            getQuote(def.denominator),
-          ])
-
-          const ratioNow = num.price / den.price
-          const ratioPrev = num.prevClose / den.prevClose
-          const pctChange = ratioPrev !== 0 ? ((ratioNow - ratioPrev) / ratioPrev) * 100 : 0
-          const score = scoreSignal(def, ratioNow, ratioPrev)
-
-          return {
-            ...def,
-            ratioNow,
-            ratioPrev,
-            pctChange,
-            score,
-            reading: scoreLabel(score),
-            trend: trendArrow(ratioNow - ratioPrev, def.inverted),
-            numPrice: num.price,
-            denPrice: den.price,
-            error: null,
-          }
-        } else {
-          // Absolute (VIXY)
-          const q = await getQuote(def.numerator)
-          const pctChange = q.pctChange ?? 0
-          const score = scoreSignal(def, q.price, q.prevClose)
-
-          return {
-            ...def,
-            ratioNow: q.price,
-            ratioPrev: q.prevClose,
-            pctChange,
-            score,
-            reading: scoreLabel(score),
-            trend: trendArrow(q.price - q.prevClose, true),
-            error: null,
-          }
-        }
+        quoteMap[symbol] = await getQuote(symbol)
       } catch (err) {
-        return {
-          ...def,
-          ratioNow: null,
-          ratioPrev: null,
-          pctChange: null,
-          score: 10,
-          reading: 'Neutral',
-          trend: 'flat',
-          error: err.message,
-        }
+        quoteMap[symbol] = { error: err.message }
       }
     })
   )
 
-  const total = results.reduce((sum, s) => sum + s.score, 0)
-  return { signals: results, compositeScore: total }
+  const results = SIGNAL_DEFS.map((def) => {
+    try {
+      let pctChange, ratioNow, ratioPrev, numPrice, denPrice
+
+      if (def.isAbsolute) {
+        const q = quoteMap[def.numerator]
+        if (q.error) throw new Error(q.error)
+        ratioNow = q.price
+        ratioPrev = q.prevClose
+        pctChange = ratioPrev !== 0 ? (ratioNow - ratioPrev) / ratioPrev : 0
+        numPrice = q.price
+
+        // For absolute (VIXY), score on price level primarily
+        const band = def.neutralBand
+        let score
+        if (ratioNow <= def.absoluteBull) score = 20
+        else if (ratioNow >= def.absoluteBear) score = 0
+        else score = 10
+
+        return {
+          ...def,
+          ratioNow, ratioPrev, pctChange: pctChange * 100,
+          score, displayScore: score,
+          reading: scoreLabel(score, false),
+          numPrice, denPrice: null,
+          error: null,
+        }
+      }
+
+      const num = quoteMap[def.numerator]
+      const den = quoteMap[def.denominator]
+      if (num.error) throw new Error(num.error)
+      if (den.error) throw new Error(den.error)
+
+      ratioNow = num.price / den.price
+      ratioPrev = num.prevClose / den.prevClose
+      pctChange = ratioPrev !== 0 ? (ratioNow - ratioPrev) / ratioPrev : 0
+      numPrice = num.price
+      denPrice = den.price
+
+      const score = scoreSignal(def, pctChange)
+
+      return {
+        ...def,
+        ratioNow, ratioPrev, pctChange: pctChange * 100,
+        score, displayScore: displayScore(score, def.doubleWeight),
+        reading: scoreLabel(score, def.doubleWeight),
+        numPrice, denPrice,
+        error: null,
+      }
+    } catch (err) {
+      return {
+        ...def,
+        ratioNow: null, ratioPrev: null, pctChange: null,
+        score: def.doubleWeight ? 20 : 10,
+        displayScore: 10,
+        reading: 'Neutral',
+        error: err.message,
+      }
+    }
+  })
+
+  // Divergence check: SPY rising but RSP/SPY falling
+  const spyData = quoteMap['SPY']
+  const breadthSignal = results.find(s => s.id === 'breadth')
+  const spyRising = spyData && !spyData.error
+    ? spyData.price > spyData.prevClose
+    : false
+  const breadthFalling = breadthSignal?.pctChange != null && breadthSignal.pctChange < 0
+  const divergenceWarning = spyRising && breadthFalling
+
+  const rawTotal = results.reduce((sum, s) => sum + s.score, 0)
+  // Normalize to 0–100
+  let compositeScore = Math.round((rawTotal / MAX_RAW) * 100)
+  if (divergenceWarning && compositeScore > 60) compositeScore = 60
+
+  return { signals: results, compositeScore, divergenceWarning }
 }
 
 export function getMarketPhase(score, prevScore) {
