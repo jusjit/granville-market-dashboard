@@ -8,6 +8,8 @@ import AlmaLog from './components/AlmaLog'
 import VolSurfacePanel from './components/VolSurfacePanel'
 import { fetchVolSurface } from './lib/volsurface'
 
+import LoginGate from './components/LoginGate'
+
 const SHOW_ALMA = import.meta.env.VITE_SHOW_ALMA === 'true'
 import Header from './components/Header'
 import ScoreGauge from './components/ScoreGauge'
@@ -17,6 +19,10 @@ import MacroCard from './components/MacroCard'
 import SynthesisPanel from './components/SynthesisPanel'
 
 export default function App() {
+  // /login is served by the same SPA bundle; the edge middleware allows it
+  // through and redirects unauthenticated visitors here (private project only).
+  if (window.location.pathname === '/login') return <LoginGate />
+
   const [signals, setSignals] = useState([])
   const [compositeScore, setCompositeScore] = useState(null)
   const [prevScore, setPrevScore] = useState(null)
