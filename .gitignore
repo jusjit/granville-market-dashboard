@@ -14,6 +14,8 @@ dist-ssr
 .env
 .env.local
 Alma backtest rules/migrate_to_supabase.py
+Alma backtest rules/alma_levels_databasefile for supabase.db
+Alma backtest rules/alma_rules.json
 
 # Editor directories and files
 .vscode/*
