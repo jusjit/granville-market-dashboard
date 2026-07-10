@@ -1,5 +1,35 @@
-const cache = { paragraph: null, timestamp: 0, inputHash: null }
-const CACHE_TTL_MS = 20 * 60 * 1000
+// Persistent cache in Supabase (synthesis_cache, single row id=1) — survives
+// serverless cold starts. Regenerate only when older than TTL or when the
+// signal states change.
+const CACHE_TTL_MS = 2 * 60 * 60 * 1000 // 2 hours
+
+async function cacheRead() {
+  const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !key) return null
+  try {
+    const r = await fetch(`${url}/rest/v1/synthesis_cache?id=eq.1&select=paragraph,input_hash,created_at`, {
+      headers: { apikey: key, Authorization: `Bearer ${key}` },
+    })
+    if (!r.ok) return null
+    const rows = await r.json()
+    return rows[0] ?? null
+  } catch { return null }
+}
+
+async function cacheWrite(paragraph, inputHash) {
+  const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !key) return
+  try {
+    await fetch(`${url}/rest/v1/synthesis_cache?on_conflict=id`, {
+      method: 'POST',
+      headers: {
+        apikey: key, Authorization: `Bearer ${key}`,
+        'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates',
+      },
+      body: JSON.stringify([{ id: 1, paragraph, input_hash: inputHash, created_at: new Date().toISOString() }]),
+    })
+  } catch { /* cache write failure is non-fatal */ }
+}
 
 function hashInputs(granvilleData, macroData) {
   return JSON.stringify({
@@ -32,8 +62,11 @@ export default async function handler(req, res) {
   if (!granvilleData || !macroData) return res.status(400).json({ error: 'granvilleData and macroData required' })
   const now = Date.now()
   const currentHash = hashInputs(granvilleData, macroData)
-  if (cache.paragraph && now - cache.timestamp < CACHE_TTL_MS && cache.inputHash === currentHash) {
-    return res.status(200).json({ paragraph: cache.paragraph, cached: true })
+  const cached = await cacheRead()
+  if (cached?.paragraph &&
+      now - new Date(cached.created_at).getTime() < CACHE_TTL_MS &&
+      cached.input_hash === currentHash) {
+    return res.status(200).json({ paragraph: cached.paragraph, cached: true })
   }
   const prompt = buildPrompt(granvilleData, macroData)
   try {
@@ -46,10 +79,9 @@ export default async function handler(req, res) {
     const data = await r.json()
     const paragraph = data?.aiRecord?.aiRecordDetail?.resultObject?.[0]
     if (!paragraph) return res.status(502).json({ error: `Unexpected response shape: ${JSON.stringify(data).slice(0, 200)}` })
-    cache.paragraph = paragraph.trim()
-    cache.timestamp = now
-    cache.inputHash = currentHash
-    return res.status(200).json({ paragraph: cache.paragraph, cached: false })
+    const trimmed = paragraph.trim()
+    await cacheWrite(trimmed, currentHash)
+    return res.status(200).json({ paragraph: trimmed, cached: false })
   } catch (err) {
     return res.status(500).json({ error: err.message })
   }
