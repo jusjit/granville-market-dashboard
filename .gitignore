@@ -13,6 +13,7 @@ dist-ssr
 *.local
 .env
 .env.local
+Alma backtest rules/migrate_to_supabase.py
 
 # Editor directories and files
 .vscode/*

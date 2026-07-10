@@ -2,6 +2,11 @@ import { useState, useEffect, useCallback } from 'react'
 import { fetchAllSignals, getMarketPhase } from './lib/signals'
 import { fetchAllMacroSignals } from './lib/macro'
 import { fetchSynthesis } from './lib/synthesis'
+import { fetchAlmaData } from './lib/alma'
+import AlmaPanel from './components/AlmaPanel'
+import AlmaLog from './components/AlmaLog'
+
+const SHOW_ALMA = import.meta.env.VITE_SHOW_ALMA === 'true'
 import Header from './components/Header'
 import ScoreGauge from './components/ScoreGauge'
 import SignalCard from './components/SignalCard'
@@ -22,6 +27,10 @@ export default function App() {
   const [synthesisLoading, setSynthesisLoading] = useState(false)
   const [synthesisError, setSynthesisError] = useState(null)
 
+  const [almaData, setAlmaData] = useState(null)
+  const [almaLoading, setAlmaLoading] = useState(false)
+  const [almaError, setAlmaError] = useState(null)
+
   const [loading, setLoading] = useState(false)
   const [lastUpdated, setLastUpdated] = useState(null)
   const [error, setError] = useState(null)
@@ -31,6 +40,15 @@ export default function App() {
     setSynthesisLoading(true)
     setSynthesisError(null)
     setError(null)
+
+    // Alma fetch runs in parallel, independent of the main flow
+    if (SHOW_ALMA) {
+      setAlmaLoading(true)
+      setAlmaError(null)
+      fetchAlmaData()
+        .then(data => { setAlmaData(data); setAlmaLoading(false) })
+        .catch(err => { setAlmaError(err.message); setAlmaLoading(false) })
+    }
 
     try {
       // Fetch Granville and Macro in parallel
@@ -130,6 +148,9 @@ export default function App() {
           </section>
         )}
 
+        {/* Granville Signal Log — directly below the signal cards */}
+        {signals.length > 0 && <SignalLog signals={signals} />}
+
         {/* Section 4 — Macro Conditions */}
         <section>
           <div className="flex items-center gap-3 mb-3">
@@ -167,24 +188,18 @@ export default function App() {
           )}
         </section>
 
-        {/* Section 5 — Alma Centroid Placeholder */}
-        <section>
-          <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">
-            Alma Centroid
-          </h2>
-          <div className="rounded-xl border border-slate-700/40 bg-slate-900/40 p-5 flex items-center gap-4">
-            <div className="w-2 h-2 rounded-full bg-slate-700 shrink-0" />
-            <div>
-              <p className="text-sm font-semibold text-slate-500">Alma Centroid — coming soon</p>
-              <p className="text-xs text-slate-700 mt-0.5">
-                Awaiting Gmail → Apps Script → Google Sheet pipeline. Intraday pivot levels will appear here.
-              </p>
-            </div>
-          </div>
-        </section>
+        {/* Section 5 — Alma Centroid (private dashboard only) */}
+        {SHOW_ALMA && (
+          <section>
+            <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">
+              Alma Centroid
+            </h2>
+            <AlmaPanel data={almaData} loading={almaLoading} error={almaError} />
+          </section>
+        )}
 
-        {/* Section 6 — Signal Log */}
-        {signals.length > 0 && <SignalLog signals={signals} />}
+        {/* Alma Signal Log — level touches, end-of-day */}
+        {SHOW_ALMA && almaData && <AlmaLog data={almaData} />}
 
         <p className="text-xs text-slate-600 text-center pb-4">
           Cross-validate at stockcharts.com · finviz.com · Data: Finnhub + FRED · Based on Granville's 1960 timing system
