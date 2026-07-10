@@ -205,8 +205,20 @@ export default async function handler(req, res) {
     await supabaseUpsert('dashboard_snapshots', row, 'date,snapshot_time')
 
     // ── market_data upsert (close only — full day's OHLC is final) ─────────
+    // Guard: only write if Tradier's last trade is actually from today (NY).
+    // Prevents holiday/after-hours/manual runs writing the PRIOR session's
+    // OHLC under today's date (which corrupts the Alma hit log).
     if (type === 'close') {
       const spx = idx.SPX, vixQ = idx.VIX
+      const tradeDate = spx?.trade_date
+        ? new Date(spx.trade_date).toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+        : null
+      if (tradeDate !== date) {
+        return res.status(200).json({
+          success: true, date, snapshot_time: type, composite_score: composite,
+          market_data: `skipped — last SPX trade is from ${tradeDate ?? 'unknown'}, not ${date}`,
+        })
+      }
       if (spx?.open != null && vixQ?.open != null) {
         await supabaseUpsert('market_data', {
           date,
