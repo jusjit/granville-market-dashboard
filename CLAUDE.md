@@ -27,18 +27,21 @@ Open **http://localhost:5173**. Vite proxies `/api/*` to port 3001 via `vite.con
 
 ## Environment Variables
 
-### `.env` (local, never committed)
-```
-VITE_FINNHUB_KEY=d8iep89r01qm63bbpnvgd8iep89r01qm63bbpo00
-VITE_FRED_KEY=fc61fbb655ed83edce10d6b7e330535e
-VITE_1MIN_KEY=07b796b959b4d95e94e2d6f78df4ab1d95549b802ec36026cec6579052dbb9c5
-```
+### `.env` (local, never committed — see file for actual values)
+`VITE_FINNHUB_KEY`, `VITE_FRED_KEY`, `VITE_1MIN_KEY` (VITE_* mapped to plain names by local-api-server), `VITE_SHOW_ALMA=true`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `TRADIER_KEY`, `INGEST_SECRET`
 
-### Vercel Dashboard (production)
-Set these in Vercel project settings → Environment Variables:
-- `FINNHUB_KEY`
-- `FRED_KEY`
-- `ONEMIN_KEY`
+### Vercel (TWO projects from the same repo/branch)
+- **granville-market-dashboard** — PUBLIC. Shows Synthesis + Granville + Macro + Vol Surface.
+- **private-market-dashboard** — PRIVATE (Vercel Authentication enabled). Same + Alma panels via `VITE_SHOW_ALMA=true`.
+
+Env vars on BOTH (no VITE_ prefix — server-side only): `FINNHUB_KEY`, `FRED_KEY`, `ONEMIN_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `TRADIER_KEY`, `INGEST_SECRET`.
+Private project ONLY: `VITE_SHOW_ALMA=true` (its absence hides Alma on public).
+
+## Supabase (project "LalliChaths", https://oteatsbkdamvczdceion.supabase.co)
+Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX/VIX OHLC + gaps), `rules` (16 backtested rules with confidence tiers).
+- RLS enabled, no policies — only service role key reads/writes.
+- `intraday_posts`/`weekly_posts`: unique constraint on `date`, identity ids (for webhook upserts).
+- Original data migrated from SQLite (`Alma backtest rules/` folder, gitignored).
 
 ## API Routes (`/api/*.js` — Vercel serverless functions)
 
@@ -66,6 +69,30 @@ Set these in Vercel project settings → Environment Variables:
 ### CRITICAL: 1min.ai API format
 `messages: [{role, content}]` format → **REJECTED** (PROMPT_OBJECT_VALIDATION_FAILED)
 `promptObject: { prompt, isMixed: false }` format → **WORKS**
+
+### `api/alma.js`
+- GET — latest `intraday_posts` + `weekly_posts` + `market_data` rows + all rules from Supabase
+- Evaluates the 16 rules with explicit per-rule_id JS (no eval); returns `{ intraday, weekly, market, activeRules }`
+- `s-maxage=300`. Feeds AlmaPanel + AlmaLog (private dashboard only).
+
+### `api/tradier.js` (vol surface)
+- SPX options chains via Tradier (ORATS greeks): first 4 dailies + Fridays to 60d (max 12 expiries)
+- ATM IV per expiry, forward IV `FIV=√((IV₂²T₂−IV₁²T₁)/(T₂−T₁))`, kink = >15% above neighbor interpolation, confirmed = spot IV ≥ 90% of forward. `s-maxage=120`.
+
+### `api/vol.js` (vol complex — shared by Granville volatility signal + macro panel)
+- Real CBOE indices via Tradier quotes: VIX1D, VIX9D, VIX, VIX3M
+- TLT ~30d ATM IV (live MOVE proxy), USD/JPY via frankfurter.app (ECB daily, no key)
+- Client cache: `src/lib/vol.js` `fetchVolComplex()` dedupes in-flight calls. `s-maxage=120`.
+
+### `api/ingest-alma.py` (Python runtime — Alma post webhook)
+- POST `{ html, subject }` with header `X-Ingest-Secret: <INGEST_SECRET>`
+- Parser functions ported UNCHANGED from `Desktop/Alma Backtesting/alma_pipeline_final.py`
+- classify by subject (weekly/week → weekly), date from `post-date` meta tag, Supabase upsert on date
+- Gmail Apps Script fires this on new Alma emails. Returns `warnings` when key fields fail to extract → indicates a new vocabulary gap needing regex work.
+- `requirements.txt` (repo root): beautifulsoup4
+
+### Tradier notes
+- Production key, `api.tradier.com`. Real indices work: SPX, VIX, VIX1D, VIX9D, VIX3M. NOT available: MOVE (symbol = Corvex Inc stock!), USDJPY, DXY — no forex.
 
 ## Dashboard Sections (in order)
 1. **AI Synthesis** — indigo panel, claude-sonnet-4-6 via 1min.ai, updates on refresh
