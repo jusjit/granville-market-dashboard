@@ -199,6 +199,29 @@ App.jsx
   └─ fetchSynthesis(granvilleData, macroData) → /api/synthesis (non-blocking)
 ```
 
+### `api/aggregate-geo-regime.js` (Ben Kim Geo Monitor aggregator)
+- GET/POST, auth `Authorization: Bearer <SNAPSHOT_SECRET>`; `?force=1` bypasses dedupe
+- Pulls geopolitical signals from worldmonitor.app public API (Hormuz tracker,
+  chokepoint status, shipping stress, theater posture, CII) + FRED (HY OAS, USD/JPY,
+  WTI spot, VIX as market-pricing cross-checks)
+- **worldmonitor API auth**: needs browser User-Agent (Cloudflare 403 otherwise) and a
+  `wms_` session token from `POST /api/wm-session` sent as `X-WorldMonitor-Key` for
+  `/v1` gateway endpoints (401 otherwise)
+- Calls 1min.ai claude-sonnet-4-6 with an edge-detector prompt (flag >30% unpriced
+  risks); strict-JSON verdict
+- Dedupe: material-state hash + `geo_regime_cache` Supabase row (3h TTL) — LLM only
+  re-called when chokepoint/CII/macro state materially changes (CII bucketed to 10pts
+  to avoid boundary jitter)
+- flagged=true → upsert `geopolitical_signals` (history trigger appends transitions);
+  `current_regime` VIEW is what the dashboard will eventually read as a gate/weight
+  on Granville timing rules (never an entry signal). Cross-repo wiring is a future step.
+- Cron: `.github/workflows/geo-regime-aggregator.yml` — every 4h + workflow_dispatch,
+  reuses the `SNAPSHOT_SECRET` GitHub secret
+- Supabase schema/grants SQL: `../geo-monitor-scaffold/*.sql` (already applied)
+- Related: worldmonitor clone at `../worldmonitor` (branch `geo-variant`) has the
+  personal `geo` dashboard variant (`npm run dev:geo`); its Market Implications panel
+  reads `geopolitical_signals` via anon key in its `.env.local`
+
 ## Known Limitations & Gotchas
 - **Finnhub free tier**: No CBOE indices (`^VIX`), no MOVE index. Use ETF proxies.
 - **FRED CORS**: Cannot call from browser. Must go through `/api/fred` serverless.
