@@ -91,6 +91,25 @@ Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX
 - Gmail Apps Script fires this on new Alma emails. Returns `warnings` when key fields fail to extract → indicates a new vocabulary gap needing regex work.
 - `requirements.txt` (repo root): beautifulsoup4
 
+### `api/snapshot.js` (twice-daily snapshots)
+- GET `?type=premarket|close`, auth `Authorization: Bearer <SNAPSHOT_SECRET>`
+- Recomputes Granville+macro server-side, upserts `dashboard_snapshots` on (date,snapshot_time)
+- On close: upserts SPX/VIX OHLC+gaps into `market_data` — GUARDED by Tradier trade_date == today (NY) so closed-market runs can't write stale data
+- Trigger: `.github/workflows/dashboard-snapshot.yml` — 13:25/21:05 UTC weekdays (9:25am/5:05pm EDT). ⚠️ DST: after Nov 1 2026 change crons to 14:25/22:05 UTC. GH repo secret: SNAPSHOT_SECRET.
+
+### `api/login.js` + `middleware.js` (private dashboard password gate)
+- Edge middleware at repo root; enforces ONLY when `DASHBOARD_PASSWORD` env is set (private project). Public project unaffected.
+- Cookie `dashboard_auth` = SHA-256(password), 30 days. Login page: `/login` (LoginGate.jsx in the SPA).
+- Excluded paths: /login, /api/login, /api/snapshot, /api/ingest-alma (own secrets), /assets, favicon.
+
+### Synthesis cache
+- Persistent in Supabase `synthesis_cache` (single row id=1), 2h TTL + input-hash invalidation. Survives cold starts; ~4-6 1min.ai calls/day.
+
+### Gmail Apps Script ("Alma Email Ingester")
+- `checkForNewAlmaPosts` polls every 15 min (time-driven trigger — verify it exists in Triggers panel!)
+- Searches `from:stochvoltrader+market-analysis@substack.com -label:alma-processed newer_than:7d`
+- Labels thread only on HTTP 200; failures retry next cycle. Errors visible in Executions log.
+
 ### Tradier notes
 - Production key, `api.tradier.com`. Real indices work: SPX, VIX, VIX1D, VIX9D, VIX3M. NOT available: MOVE (symbol = Corvex Inc stock!), USDJPY, DXY — no forex.
 
