@@ -5,6 +5,8 @@ import { fetchSynthesis } from './lib/synthesis'
 import { fetchAlmaData } from './lib/alma'
 import AlmaPanel from './components/AlmaPanel'
 import AlmaLog from './components/AlmaLog'
+import VolSurfacePanel from './components/VolSurfacePanel'
+import { fetchVolSurface } from './lib/volsurface'
 
 const SHOW_ALMA = import.meta.env.VITE_SHOW_ALMA === 'true'
 import Header from './components/Header'
@@ -27,6 +29,10 @@ export default function App() {
   const [synthesisLoading, setSynthesisLoading] = useState(false)
   const [synthesisError, setSynthesisError] = useState(null)
 
+  const [volData, setVolData] = useState(null)
+  const [volLoading, setVolLoading] = useState(false)
+  const [volError, setVolError] = useState(null)
+
   const [almaData, setAlmaData] = useState(null)
   const [almaLoading, setAlmaLoading] = useState(false)
   const [almaError, setAlmaError] = useState(null)
@@ -40,6 +46,13 @@ export default function App() {
     setSynthesisLoading(true)
     setSynthesisError(null)
     setError(null)
+
+    // Vol surface fetch runs in parallel, independent of the main flow
+    setVolLoading(true)
+    setVolError(null)
+    fetchVolSurface()
+      .then(data => { setVolData(data); setVolLoading(false) })
+      .catch(err => { setVolError(err.message); setVolLoading(false) })
 
     // Alma fetch runs in parallel, independent of the main flow
     if (SHOW_ALMA) {
@@ -186,6 +199,14 @@ export default function App() {
               Loading macro conditions…
             </div>
           )}
+        </section>
+
+        {/* Vol Surface — Tradier/ORATS SPX term structure */}
+        <section>
+          <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">
+            Vol Surface
+          </h2>
+          <VolSurfacePanel data={volData} loading={volLoading} error={volError} />
         </section>
 
         {/* Section 5 — Alma Centroid (private dashboard only) */}
