@@ -11,6 +11,7 @@ const OPEN_PATHS = [
   /^\/login$/,
   /^\/api\/login$/,
   /^\/api\/snapshot/,      // Bearer SNAPSHOT_SECRET
+  /^\/api\/aggregate-geo-regime/, // Bearer SNAPSHOT_SECRET (geo regime cron)
   /^\/api\/ingest-alma/,   // X-Ingest-Secret
   /^\/assets\//,           // Vite build output (hashed filenames)
   /^\/favicon/,
