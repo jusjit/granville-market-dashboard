@@ -85,6 +85,27 @@ async function gatherSignals() {
     shippingStress: fetchJson(`${WM_BASE}/api/supply-chain/v1/get-shipping-stress`, 15000, wmToken),
     theaterPosture: fetchJson(`${WM_BASE}/api/military/v1/get-theater-posture`, 15000, wmToken),
     riskScores: fetchJson(`${WM_BASE}/api/intelligence/v1/get-risk-scores`, 15000, wmToken),
+    // Broad scan (added 2026-07): cross-stream convergence signals and a
+    // compact UCDP conflict summary across ALL countries, so the LLM sees
+    // beyond the chokepoint/Taiwan core. get-risk-scores above already returns
+    // every Tier-1 country. (list-market-implications and get-regime-history
+    // are Pro-gated upstream — verified 401, not usable.)
+    crossSourceSignals: fetchJson(`${WM_BASE}/api/intelligence/v1/list-cross-source-signals`, 15000, wmToken),
+    ucdpSummary: fetchJson(`${WM_BASE}/api/conflict/v1/list-ucdp-events`, 20000, wmToken)
+      .then(d => {
+        // Raw feed is 100KB+; reduce to per-country event/death counts.
+        const byCountry = {}
+        for (const e of d?.events ?? []) {
+          const c = e.country ?? 'unknown'
+          byCountry[c] = byCountry[c] ?? { events: 0, deaths: 0 }
+          byCountry[c].events += 1
+          byCountry[c].deaths += Number(e.deathsBest ?? 0)
+        }
+        return Object.entries(byCountry)
+          .sort((a, b) => b[1].deaths - a[1].deaths)
+          .slice(0, 25)
+          .map(([country, v]) => ({ country, ...v }))
+      }),
     // FRED: macro stress inputs + the market-pricing cross-checks the prompt
     // requires (spot oil, SPX IV proxy, yen) so the model can verify what is
     // already priced BEFORE flagging.
@@ -128,6 +149,11 @@ function hashInputs(s) {
     cii: (s.riskScores?.ciiScores ?? [])
       .filter(c => ['TW', 'CN', 'IR', 'IL', 'JP', 'SA', 'YE', 'EG', 'RU', 'UA'].includes(c.region))
       .map(c => `${c.region}:${round(Number(c.combinedScore ?? 0), 10)}`).sort(),
+    crossSource: (s.crossSourceSignals?.signals ?? [])
+      .map(x => `${x.id}:${x.severity ?? ''}`).sort(),
+    // Bucket UCDP counts so single-event drift doesn't re-call the LLM.
+    ucdp: (Array.isArray(s.ucdpSummary) ? s.ucdpSummary : [])
+      .map(u => `${u.country}:${round(u.events, 25)}:${round(u.deaths, 50)}`).sort(),
     hyOas: round(latest(s.hyOas), 0.25),
     yen: round(latest(s.yen), 2),
     wti: round(latest(s.wtiSpot), 2),
@@ -144,7 +170,9 @@ Identify risks that would trigger: (1) oil/energy shock, (2) carry unwind, (3) e
 
 Flag ONLY if probability > 30% AND the market hasn't fully priced it yet — cross-check spot oil, SPX IV, and yen vol BEFORE flagging, not after. The edge is catching this ahead of confirmation, so bias toward earlier/lower-confidence flags with explicit confidence scores rather than waiting for certainty.
 
-Output strict JSON: {flagged: boolean, risk_category: string, confidence: 0-100, transmission_chain: string, relevant_signals: string[], granville_modifier: {position_size_cap: number, alma_reversion_confidence: number}}`
+Additionally, evaluate EVERY signal category in the data (chokepoints, conflict/UCDP by country, cross-source convergence signals, CII per country, supply chain stress, credit, FX/carry, vol) and report your reasoning per category — including the ones you did NOT flag — so every run is a labeled data point.
+
+Output strict JSON: {flagged: boolean, risk_category: string, confidence: 0-100, transmission_chain: string, relevant_signals: string[], granville_modifier: {position_size_cap: number, alma_reversion_confidence: number}, categories_considered: string[], categories_dismissed_reason: {<category>: "one-line reason not flagged"}}`
 
 function buildPrompt(signals, errors) {
   return `${SYSTEM_PROMPT}
@@ -232,6 +260,31 @@ async function upsertSignal(verdict) {
   return (await r.json())[0]
 }
 
+// Append-only per-run record: every evaluation (flagged or not) becomes a
+// labeled data point, including categories_considered / dismissed reasons,
+// for later analysis of what actually precedes market moves.
+async function insertRunRecord(verdict, inputHash, errors) {
+  const c = sb(); if (!c) return 'Supabase not configured'
+  const row = {
+    flagged: verdict.flagged === true,
+    risk_category: verdict.flagged === true ? String(verdict.risk_category ?? '') : null,
+    confidence: Math.max(0, Math.min(100, Math.round(Number(verdict.confidence) || 0))),
+    categories_considered: verdict.categories_considered ?? [],
+    categories_dismissed_reason: verdict.categories_dismissed_reason ?? {},
+    verdict,
+    input_hash: inputHash,
+    source_errors: errors,
+  }
+  try {
+    const r = await fetch(`${c.url}/rest/v1/geo_regime_runs`, {
+      method: 'POST',
+      headers: c.headers,
+      body: JSON.stringify([row]),
+    })
+    return r.ok ? null : `geo_regime_runs insert ${r.status}: ${(await r.text()).slice(0, 150)}`
+  } catch (e) { return e.message }
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET' && req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
   const secret = process.env.SNAPSHOT_SECRET
@@ -266,8 +319,10 @@ export default async function handler(req, res) {
       catch (e) { upsertError = e.message }
     }
 
+    const runRecordError = await insertRunRecord(verdict, inputHash, errors)
+
     await cacheWrite(result, inputHash)
-    return res.status(200).json({ ...result, cached: false, upsertedSignal: upserted?.slug ?? null, upsertError, sourceErrors: errors })
+    return res.status(200).json({ ...result, cached: false, upsertedSignal: upserted?.slug ?? null, upsertError, runRecordError, sourceErrors: errors })
   } catch (err) {
     return res.status(500).json({ error: err.message })
   }
