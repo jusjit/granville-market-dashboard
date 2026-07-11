@@ -202,8 +202,13 @@ App.jsx
 ### `api/aggregate-geo-regime.js` (Ben Kim Geo Monitor aggregator)
 - GET/POST, auth `Authorization: Bearer <SNAPSHOT_SECRET>`; `?force=1` bypasses dedupe
 - Pulls geopolitical signals from worldmonitor.app public API (Hormuz tracker,
-  chokepoint status, shipping stress, theater posture, CII) + FRED (HY OAS, USD/JPY,
-  WTI spot, VIX as market-pricing cross-checks)
+  chokepoint status, shipping stress, theater posture, CII — all 31 Tier-1 countries)
+  + broad scan (added 2026-07-11): `list-cross-source-signals` (military surges, GPS
+  jamming, risk spikes) and `list-ucdp-events` reduced server-side to top-25 country
+  event/death counts + FRED (HY OAS, USD/JPY, WTI spot, VIX as market-pricing
+  cross-checks). Upstream `list-market-implications`/`get-regime-history` are
+  Pro-gated (401) — not usable. Broadening cost: ~9% prompt growth, ~13K tokens per
+  fresh call.
 - **worldmonitor API auth**: needs browser User-Agent (Cloudflare 403 otherwise) and a
   `wms_` session token from `POST /api/wm-session` sent as `X-WorldMonitor-Key` for
   `/v1` gateway endpoints (401 otherwise)
@@ -215,9 +220,16 @@ App.jsx
 - flagged=true → upsert `geopolitical_signals` (history trigger appends transitions);
   `current_regime` VIEW is what the dashboard will eventually read as a gate/weight
   on Granville timing rules (never an entry signal). Cross-repo wiring is a future step.
+- EVERY run (flagged or not) also inserts a labeled row into `geo_regime_runs`
+  (verdict jsonb + `categories_considered` + `categories_dismissed_reason` per
+  category) for later analysis of what precedes real market moves. Insert is
+  best-effort — failure surfaces as `runRecordError`, never drops the verdict.
+- **Private-project gotcha**: middleware.js password gate 401s any /api path not in
+  OPEN_PATHS *before* the function runs — new cron endpoints must be allowlisted
+  there (aggregate-geo-regime was added 2026-07-11 after the cron failed with 401).
 - Cron: `.github/workflows/geo-regime-aggregator.yml` — every 4h + workflow_dispatch,
   reuses the `SNAPSHOT_SECRET` GitHub secret
-- Supabase schema/grants SQL: `../geo-monitor-scaffold/*.sql` (already applied)
+- Supabase schema/grants SQL: `../geo-monitor-scaffold/*.sql` (all applied, incl. geo_regime_runs 2026-07-11)
 - Related: worldmonitor clone at `../worldmonitor` (branch `geo-variant`) has the
   personal `geo` dashboard variant (`npm run dev:geo`); its Market Implications panel
   reads `geopolitical_signals` via anon key in its `.env.local`
