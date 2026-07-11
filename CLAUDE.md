@@ -37,6 +37,10 @@ Open **http://localhost:5173**. Vite proxies `/api/*` to port 3001 via `vite.con
 Env vars on BOTH (no VITE_ prefix — server-side only): `FINNHUB_KEY`, `FRED_KEY`, `ONEMIN_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `TRADIER_KEY`, `INGEST_SECRET`.
 Private project ONLY: `VITE_SHOW_ALMA=true` (its absence hides Alma on public).
 
+**Planned**: `VITE_SHOW_GEO_REGIME=true`, private project only, same on/off pattern as
+`VITE_SHOW_ALMA` — for the not-yet-shipped Geo Regime tab (see "Geo Regime Panel (WIP)" below).
+Not set anywhere yet; the panel isn't wired into `App.jsx` so the flag would currently do nothing.
+
 ## Supabase (project "LalliChaths", https://oteatsbkdamvczdceion.supabase.co)
 Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX/VIX OHLC + gaps), `rules` (16 backtested rules with confidence tiers).
 - RLS enabled, no policies — only service role key reads/writes.
@@ -120,6 +124,8 @@ Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX
 4. **Macro Conditions** — slate cards, descriptive only (not scored)
 5. **Alma Centroid** — placeholder ("coming soon")
 6. **Signal Log** — plain-English bullet log
+7. **Geo Regime** — PLANNED, private dashboard only. Not yet in this list for real —
+   see "Geo Regime Panel (WIP)" below for status/location before assuming it renders.
 
 ## Granville Scoring System
 
@@ -227,6 +233,46 @@ App.jsx
 - **Private-project gotcha**: middleware.js password gate 401s any /api path not in
   OPEN_PATHS *before* the function runs — new cron endpoints must be allowlisted
   there (aggregate-geo-regime was added 2026-07-11 after the cron failed with 401).
+
+### Geo Regime Panel (WIP — scaffolded 2026-07-11, NOT shipped)
+
+This will eventually be dashboard section 7, **private project only** (same
+`VITE_SHOW_*` pattern as Alma) — a tab surfacing the regime state the aggregator
+above writes to Supabase. Currently in the **data-validation phase**: watching the
+aggregator's real output for a while before finishing the UI. Do not assume this
+tab exists in the deployed app — it does not.
+
+**Status**: scaffolded on local branch `wip/geo-regime-panel` (based on `main`,
+not merged, not pushed to origin — exists only in this local clone until someone
+decides to finish it). `main` / deployed `git log` will NOT show these files.
+
+**What's there** (on that branch):
+- `api/geo-regime.js` — read-only endpoint, same service-role Supabase pattern as
+  `api/alma.js`. Reads `current_regime`, all `geopolitical_signals`, and the 20
+  most recent `geo_regime_runs`. Tested against live data.
+- `src/lib/georegime.js` — client fetch wrapper mirroring `lib/alma.js`.
+- `src/components/GeoRegimePanel.jsx` — draft component styled after `AlmaPanel.jsx`.
+
+**Confirmed NOT wired**: nothing on `main` imports any of the three files above;
+`App.jsx` has no `GeoRegimePanel`/`fetchGeoRegime` reference. Re-verify with
+`grep -rln "GeoRegimePanel\|fetchGeoRegime" src/App.jsx` before assuming otherwise —
+this note will go stale the moment someone starts wiring it in.
+
+**Still to decide before shipping** (TODOs live inline in the component too):
+1. Field selection — `geopolitical_signals.notes` is often 1000+ chars of LLM
+   prose; `categories_dismissed_reason` (arguably the most useful part — a
+   labeled reason for every non-flagged category, every run) isn't surfaced at
+   all yet, just a count of the latest run's `categories_considered`.
+2. Fetch cadence — regime updates ~every 4h via cron; don't refetch on every
+   `App.jsx` `refresh()` the way Alma/synthesis do (wasted requests against
+   data that hasn't changed).
+3. Layout/styling — severity color thresholds are a first guess, untuned.
+4. Wiring — add `VITE_SHOW_GEO_REGIME` env flag, add state/effects in `App.jsx`
+   mirroring `almaData`/`almaLoading`/`almaError`, decide render position
+   relative to Alma/Vol Surface panels.
+
+To resume: `git checkout wip/geo-regime-panel` (or cherry-pick the 3 files onto
+a fresh branch off current `main`, since `main` will have moved on).
 - Cron: `.github/workflows/geo-regime-aggregator.yml` — every 4h + workflow_dispatch,
   reuses the `SNAPSHOT_SECRET` GitHub secret
 - Supabase schema/grants SQL: `../geo-monitor-scaffold/*.sql` (all applied, incl. geo_regime_runs 2026-07-11)
