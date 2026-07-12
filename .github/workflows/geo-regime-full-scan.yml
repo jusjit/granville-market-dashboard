@@ -1,0 +1,22 @@
+name: Geo Regime Full-Breadth Scan
+on:
+  schedule:
+    # Matches the Granville dashboard-snapshot.yml cadence (premarket + close,
+    # weekdays). The routine geo-regime-aggregator.yml cron still runs every
+    # 4h including weekends and will call the LLM on any material change even
+    # outside this schedule — this job's only purpose is to periodically force
+    # a COMPLETE dataset scan (all categories, not just what changed) so
+    # categories_considered/categories_dismissed_reason keeps covering
+    # everything the routine delta-mode runs skip when unchanged.
+    - cron: '25 13 * * 1-5'  # 9:25am EDT premarket (13:25 UTC)
+    - cron: '5 21 * * 1-5'   # 5:05pm EDT close (21:05 UTC)
+  workflow_dispatch:  # manual on-demand trigger
+
+jobs:
+  full-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call aggregate-geo-regime endpoint (scan=full)
+        run: |
+          curl -f -X GET "https://private-market-dashboard.vercel.app/api/aggregate-geo-regime?scan=full" \
+            -H "Authorization: Bearer ${{ secrets.SNAPSHOT_SECRET }}"

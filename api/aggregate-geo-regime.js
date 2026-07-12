@@ -19,18 +19,33 @@
 // Granville timing rules. Geopolitics is never an entry signal itself — a
 // flagged regime only caps size or scales confidence on signals the technical
 // system already generated. Wiring that consumer lives in the dashboard
-// frontend/api and is a separate future step.
+// frontend/api and is a separate future step (WIP scaffold on branch
+// wip/geo-regime-panel — see CLAUDE.md).
+// ────────────────────────────────────────────────────────────────────────────
+//
+// ── THREE RUN MODES (added 2026-07-12 — diff-gate cost reduction) ──────────
+// 1. gated-skip:      material state unchanged since last snapshot -> NO LLM
+//                      call. Cheap Supabase read/write only. Logged so the
+//                      run history still shows the cron fired.
+// 2. gated-triggered: material state changed -> LLM call, but the prompt
+//                      sends deltas + chokepoints-always-full + only the
+//                      categories that changed, not the full 31-country/
+//                      all-category payload. Routine 4h cron uses this mode.
+// 3. full-scan:        always calls the LLM with the COMPLETE dataset,
+//                      regardless of whether anything changed. Runs 1-2x/day
+//                      (see geo-regime-full-scan.yml) so categories_considered/
+//                      categories_dismissed_reason periodically covers
+//                      everything, not just what moved.
+// `?force=1` forces mode 2 (gated-triggered) even with no material change —
+// for manual testing of the routine path. `?scan=full` forces mode 3.
 // ────────────────────────────────────────────────────────────────────────────
 //
 // Auth: Authorization: Bearer <SNAPSHOT_SECRET> (same secret as api/snapshot.js,
 // already present in Vercel env + GitHub Actions secrets — nothing new to add).
-// Trigger: GitHub Actions cron every 4h (geo-regime-aggregator.yml) or manual
-// GET/POST. `?force=1` bypasses the cache/dedupe and always calls the LLM.
+// Triggers: geo-regime-aggregator.yml (every 4h, gated) and
+// geo-regime-full-scan.yml (1-2x/day, always full).
 
 const WM_BASE = process.env.WORLDMONITOR_API_BASE || 'https://www.worldmonitor.app'
-const CACHE_TTL_MS = 3 * 60 * 60 * 1000 // < 4h cron interval, so an unchanged
-// input hash within the same cycle never re-calls 1min.ai (mirrors the
-// synthesis.js hash+TTL dedupe approach)
 
 const RISK_TO_IMPLICATION = [
   [/oil|energy|hormuz|tanker|lng/i, 'oil_shock_risk'],
@@ -125,41 +140,92 @@ async function gatherSignals() {
   return { signals, errors }
 }
 
-// Dedupe hash over the MATERIAL state only (statuses, posture levels, bucketed
-// macro values) — noisy fields (timestamps, prose) excluded so the LLM is only
-// re-called when something actually moved.
-function hashInputs(s) {
-  const round = (v, step) => (v == null ? null : Math.round(v / step) * step)
-  const latest = arr => (Array.isArray(arr) && arr[0] ? arr[0].value : null)
-  // Field names verified against live worldmonitor.app responses (2026-07):
-  // chokepoints[].{id,status,disruptionScore}, theaters[].{theater,postureLevel,
-  // activeFlights}, ciiScores[].{region,combinedScore,trend}.
-  const material = {
+// ── Diff-gate thresholds ────────────────────────────────────────────────────
+// TUNABLE CONSTANTS — adjust these as you calibrate the aggregator against
+// real state changes. Values are bucket sizes: a move smaller than the
+// bucket is treated as noise, not a material change. Chokepoint status and
+// cross-source signal id/severity are compared as exact strings (any change
+// is material — no numeric threshold makes sense there).
+const THRESHOLDS = {
+  chokepointDisruptionScore: 10, // points (0-100 scale)
+  ciiCombinedScore: 10,          // points — CN 57.4↔57.6 jitter observed pre-bucketing
+  ucdpEventCount: 25,            // per-country event count
+  ucdpDeathCount: 50,            // per-country death count
+  shippingChangePct: 2,          // carrier % change points
+  theaterActiveFlights: 5,       // count
+  hyOas: 0.25,                   // percentage points
+  yen: 2,                        // USD/JPY
+  wti: 2,                        // USD per barrel
+  vix: 1,                        // VIX points
+}
+
+const round = (v, step) => (v == null ? null : Math.round(v / step) * step)
+const latest = arr => (Array.isArray(arr) && arr[0] ? arr[0].value : null)
+
+// Bucketed "material state" — the same categories the old dedupe hash used,
+// now kept as a structured object (not pre-stringified) so it can both hash
+// AND diff field-by-field against the last snapshot. Field names verified
+// against live worldmonitor.app responses (2026-07): chokepoints[].{id,status,
+// disruptionScore}, theaters[].{theater,postureLevel,activeFlights},
+// ciiScores[].{region,combinedScore,trend}.
+function computeMaterialState(s) {
+  return {
     hormuz: s.hormuz?.status ?? null,
     chokepoints: (s.chokepoints?.chokepoints ?? [])
       .filter(c => ['hormuz_strait', 'bab_el_mandeb', 'suez', 'taiwan_strait'].includes(c.id))
-      .map(c => `${c.id}:${c.status ?? ''}:${round(Number(c.disruptionScore ?? 0), 10)}`).sort(),
+      .map(c => `${c.id}:${c.status ?? ''}:${round(Number(c.disruptionScore ?? 0), THRESHOLDS.chokepointDisruptionScore)}`).sort(),
     shipping: (s.shippingStress?.carriers ?? [])
-      .map(c => `${c.symbol}:${round(Number(c.changePct ?? 0), 2)}`).sort(),
+      .map(c => `${c.symbol}:${round(Number(c.changePct ?? 0), THRESHOLDS.shippingChangePct)}`).sort(),
     posture: (s.theaterPosture?.theaters ?? [])
-      .map(t => `${t.theater}:${t.postureLevel ?? ''}:${round(Number(t.activeFlights ?? 0), 5)}`).sort(),
-    // 10-point buckets: combinedScore recomputes continuously and jitters ±1-2
-    // around bucket edges (observed CN 57.4↔57.6 flipping a 5-point bucket),
-    // which would re-call the LLM on non-material change.
+      .map(t => `${t.theater}:${t.postureLevel ?? ''}:${round(Number(t.activeFlights ?? 0), THRESHOLDS.theaterActiveFlights)}`).sort(),
     cii: (s.riskScores?.ciiScores ?? [])
       .filter(c => ['TW', 'CN', 'IR', 'IL', 'JP', 'SA', 'YE', 'EG', 'RU', 'UA'].includes(c.region))
-      .map(c => `${c.region}:${round(Number(c.combinedScore ?? 0), 10)}`).sort(),
+      .map(c => `${c.region}:${round(Number(c.combinedScore ?? 0), THRESHOLDS.ciiCombinedScore)}`).sort(),
     crossSource: (s.crossSourceSignals?.signals ?? [])
       .map(x => `${x.id}:${x.severity ?? ''}`).sort(),
-    // Bucket UCDP counts so single-event drift doesn't re-call the LLM.
     ucdp: (Array.isArray(s.ucdpSummary) ? s.ucdpSummary : [])
-      .map(u => `${u.country}:${round(u.events, 25)}:${round(u.deaths, 50)}`).sort(),
-    hyOas: round(latest(s.hyOas), 0.25),
-    yen: round(latest(s.yen), 2),
-    wti: round(latest(s.wtiSpot), 2),
-    vix: round(latest(s.vix), 1),
+      .map(u => `${u.country}:${round(u.events, THRESHOLDS.ucdpEventCount)}:${round(u.deaths, THRESHOLDS.ucdpDeathCount)}`).sort(),
+    hyOas: round(latest(s.hyOas), THRESHOLDS.hyOas),
+    yen: round(latest(s.yen), THRESHOLDS.yen),
+    wti: round(latest(s.wtiSpot), THRESHOLDS.wti),
+    vix: round(latest(s.vix), THRESHOLDS.vix),
   }
-  return JSON.stringify(material)
+}
+
+// List-field entries are "key:...rest" strings (e.g. "hormuz_strait:red:70").
+// Diff by key so a bucket change reads as one clean "id: old -> new" delta
+// instead of an opaque add/remove pair.
+function diffListField(prevArr = [], currArr = []) {
+  const keyOf = s => s.split(':')[0]
+  const prevMap = new Map(prevArr.map(s => [keyOf(s), s]))
+  const currMap = new Map(currArr.map(s => [keyOf(s), s]))
+  const deltas = []
+  for (const [k, currVal] of currMap) {
+    const prevVal = prevMap.get(k)
+    if (prevVal !== currVal) deltas.push({ key: k, from: prevVal ?? null, to: currVal })
+  }
+  for (const [k, prevVal] of prevMap) {
+    if (!currMap.has(k)) deltas.push({ key: k, from: prevVal, to: null })
+  }
+  return deltas
+}
+
+// Returns { changed, deltas } where deltas is { <category>: delta[] | {from,to} }.
+// prev === null (first-ever run, no snapshot yet) treats everything as new —
+// natural bootstrap: first run always triggers, same as a bare full-scan.
+function diffMaterialStates(prev, curr) {
+  const deltas = {}
+  let changed = false
+  for (const key of Object.keys(curr)) {
+    if (Array.isArray(curr[key])) {
+      const d = diffListField(prev?.[key] ?? [], curr[key])
+      if (d.length) { deltas[key] = d; changed = true }
+    } else {
+      const p = prev ? (prev[key] ?? null) : null
+      if (p !== curr[key]) { deltas[key] = { from: p, to: curr[key] }; changed = true }
+    }
+  }
+  return { changed, deltas }
 }
 
 const SYSTEM_PROMPT = `You are a geopolitical-to-markets edge detector. Your job is to flag risks BEFORE mainstream financial news picks them up — not to summarize current events.
@@ -174,8 +240,21 @@ Additionally, evaluate EVERY signal category in the data (chokepoints, conflict/
 
 Output strict JSON: {flagged: boolean, risk_category: string, confidence: 0-100, transmission_chain: string, relevant_signals: string[], granville_modifier: {position_size_cap: number, alma_reversion_confidence: number}, categories_considered: string[], categories_dismissed_reason: {<category>: "one-line reason not flagged"}}`
 
-function buildPrompt(signals, errors) {
+// NOTE on 1min.ai prompt caching (checked 2026-07-12): the chat-with-ai
+// promptObject schema (see settings: withMemories/historySettings/
+// webSearchSettings in a live response) exposes no cache_control-style
+// breakpoint or separate system-prompt field — it's a single flat `prompt`
+// string. There is no API-level caching lever available here. This is a
+// smaller loss than it sounds: SYSTEM_PROMPT is ~1.1K chars (~280 tokens);
+// the DATA payload (up to 60K chars / ~13K tokens on a full scan) was always
+// the dominant cost, which is exactly what the delta-mode payload below cuts.
+
+// Full-breadth prompt — complete current state of every category, used by
+// full-scan mode regardless of what changed.
+function buildFullPrompt(signals, errors) {
   return `${SYSTEM_PROMPT}
+
+MODE: full-breadth scan (complete dataset, all categories, regardless of change).
 
 CURRENT SIGNAL DATA (JSON, null = source unavailable${errors.length ? `; failed sources: ${errors.join('; ')}` : ''}):
 ${JSON.stringify(signals).slice(0, 60000)}
@@ -183,8 +262,66 @@ ${JSON.stringify(signals).slice(0, 60000)}
 Respond with the strict JSON object only — no markdown fences, no commentary.`
 }
 
+// gatherSignals()'s keys don't match computeMaterialState()'s keys 1:1
+// (e.g. signals.shippingStress vs material.shipping) — this map lets
+// buildDeltaPrompt look up "did THIS signal's category change" correctly.
+// Getting this wrong silently downgrades a real change to a summary line —
+// caught in testing via an apples-to-apples prompt-size comparison (a
+// "changed" delta prompt came out smaller than the full-scan prompt, which
+// is only possible if categories were being summarized when they shouldn't
+// have been).
+const SIGNAL_TO_MATERIAL_KEY = {
+  hormuz: 'hormuz',
+  chokepoints: 'chokepoints',
+  shippingStress: 'shipping',
+  theaterPosture: 'posture',
+  riskScores: 'cii',
+  crossSourceSignals: 'crossSource',
+  ucdpSummary: 'ucdp',
+  hyOas: 'hyOas',
+  yen: 'yen',
+  wtiSpot: 'wti',
+  vix: 'vix',
+}
+
+// Delta prompt — used by gated-triggered mode. Chokepoints (+ hormuz) are
+// core to the trading thesis so they're always sent in full regardless of
+// whether they moved. Every other category is sent in full ONLY if it
+// appears in the diff; otherwise only its compact bucketed last-known value
+// is included (a few bytes, not the raw payload) so the model still has
+// full category coverage for categories_considered without re-paying to
+// re-interpret unchanged detail.
+function buildDeltaPrompt(signals, material, diff, errors) {
+  const ALWAYS_FULL = new Set(['hormuz', 'chokepoints'])
+  const changedMaterialKeys = new Set(Object.keys(diff.deltas))
+  const fullPayload = {}
+  const unchangedSummary = {}
+  for (const key of Object.keys(signals)) {
+    const materialKey = SIGNAL_TO_MATERIAL_KEY[key] ?? key
+    if (ALWAYS_FULL.has(key) || changedMaterialKeys.has(materialKey)) fullPayload[key] = signals[key]
+    else unchangedSummary[key] = material[materialKey]
+  }
+  return `${SYSTEM_PROMPT}
+
+MODE: routine delta scan. Chokepoints are always sent in full (core to the trading thesis). Other categories are sent in full ONLY if they changed since the last run; unchanged categories are summarized as their last-known bucketed value only.
+
+CHANGES SINCE LAST RUN (category -> delta; empty object per category means no field-level change was material):
+${JSON.stringify(diff.deltas)}
+
+FULL DATA — chokepoints (always) + any changed category:
+${JSON.stringify(fullPayload).slice(0, 40000)}
+
+UNCHANGED CATEGORIES (compact last-known bucketed state, no new raw detail — still evaluate these for categories_considered, just treat "no delta" as continuing prior reasoning):
+${JSON.stringify(unchangedSummary)}
+${errors.length ? `\nFailed sources this run: ${errors.join('; ')}` : ''}
+
+Respond with the strict JSON object only — no markdown fences, no commentary.`
+}
+
 // Same 1min.ai call shape as api/synthesis.js — promptObject format, NOT a
 // messages array (messages format is rejected with PROMPT_OBJECT_VALIDATION_FAILED).
+// Returns both the parsed verdict and the real token/credit usage from
+// aiRecord.metadata so every run can log actual cost, not an estimate.
 async function callOneMin(prompt, key) {
   const r = await fetch('https://api.1min.ai/api/chat-with-ai', {
     method: 'POST',
@@ -195,10 +332,16 @@ async function callOneMin(prompt, key) {
   const data = await r.json()
   const text = data?.aiRecord?.aiRecordDetail?.resultObject?.[0]
   if (!text) throw new Error(`Unexpected 1min.ai response shape: ${JSON.stringify(data).slice(0, 200)}`)
-  // Strict-JSON contract, but defend against fenced/prefixed output anyway.
   const match = String(text).replace(/```(?:json)?/g, '').match(/\{[\s\S]*\}/)
   if (!match) throw new Error(`LLM did not return JSON: ${String(text).slice(0, 200)}`)
-  return JSON.parse(match[0])
+  const m = data?.aiRecord?.metadata ?? {}
+  const tokenUsage = {
+    inputToken: m.inputToken ?? null,
+    outputToken: m.outputToken ?? null,
+    totalToken: m.totalToken ?? null,
+    credit: m.credit ?? null,
+  }
+  return { verdict: JSON.parse(match[0]), tokenUsage }
 }
 
 function sb() {
@@ -208,22 +351,24 @@ function sb() {
   return { url, headers }
 }
 
-async function cacheRead() {
+// ── Last-snapshot persistence (raw + bucketed material state, NO synthesis
+// output) — this is the diff-gate's memory. Cheap reads/writes, no LLM. ────
+async function readLastSnapshot() {
   const c = sb(); if (!c) return null
   try {
-    const r = await fetch(`${c.url}/rest/v1/geo_regime_cache?id=eq.1&select=result,input_hash,created_at`, { headers: c.headers })
+    const r = await fetch(`${c.url}/rest/v1/geo_regime_last_snapshot?id=eq.1&select=material,raw,captured_at`, { headers: c.headers })
     if (!r.ok) return null
     return (await r.json())[0] ?? null
   } catch { return null }
 }
 
-async function cacheWrite(result, inputHash) {
+async function writeLastSnapshot(material, raw) {
   const c = sb(); if (!c) return
   try {
-    await fetch(`${c.url}/rest/v1/geo_regime_cache?on_conflict=id`, {
+    await fetch(`${c.url}/rest/v1/geo_regime_last_snapshot?on_conflict=id`, {
       method: 'POST',
       headers: { ...c.headers, Prefer: 'resolution=merge-duplicates' },
-      body: JSON.stringify([{ id: 1, result, input_hash: inputHash, created_at: new Date().toISOString() }]),
+      body: JSON.stringify([{ id: 1, material, raw, captured_at: new Date().toISOString() }]),
     })
   } catch { /* non-fatal */ }
 }
@@ -260,12 +405,13 @@ async function upsertSignal(verdict) {
   return (await r.json())[0]
 }
 
-// Append-only per-run record: every evaluation (flagged or not) becomes a
-// labeled data point, including categories_considered / dismissed reasons,
-// for later analysis of what actually precedes market moves.
-async function insertRunRecord(verdict, inputHash, errors) {
+// Append-only per-run record: every evaluation — including gated-skip runs
+// that never called the LLM — becomes a labeled data point. run_type lets
+// later review distinguish gated-skip / gated-triggered / full-scan.
+async function insertRunRecord({ runType, verdict, inputHash, errors, diff, tokenUsage }) {
   const c = sb(); if (!c) return 'Supabase not configured'
   const row = {
+    run_type: runType,
     flagged: verdict.flagged === true,
     risk_category: verdict.flagged === true ? String(verdict.risk_category ?? '') : null,
     confidence: Math.max(0, Math.min(100, Math.round(Number(verdict.confidence) || 0))),
@@ -274,6 +420,8 @@ async function insertRunRecord(verdict, inputHash, errors) {
     verdict,
     input_hash: inputHash,
     source_errors: errors,
+    diff: diff ?? {},
+    token_usage: tokenUsage ?? null,
   }
   try {
     const r = await fetch(`${c.url}/rest/v1/geo_regime_runs`, {
@@ -293,23 +441,38 @@ export default async function handler(req, res) {
   const oneMinKey = process.env.ONEMIN_KEY
   if (!oneMinKey) return res.status(500).json({ error: 'ONEMIN_KEY not configured' })
 
-  const force = req.query?.force === '1' || (typeof req.body === 'object' && req.body?.force === true)
+  const body = typeof req.body === 'object' && req.body ? req.body : {}
+  const force = req.query?.force === '1' || body.force === true
+  const scanFull = req.query?.scan === 'full' || body.scan === 'full'
 
   try {
     const { signals, errors } = await gatherSignals()
-    const inputHash = hashInputs(signals)
+    const material = computeMaterialState(signals)
+    const inputHash = JSON.stringify(material)
 
-    if (!force) {
-      const cached = await cacheRead()
-      if (cached?.result &&
-          Date.now() - new Date(cached.created_at).getTime() < CACHE_TTL_MS &&
-          cached.input_hash === inputHash) {
-        return res.status(200).json({ ...cached.result, cached: true, sourceErrors: errors })
-      }
+    const lastSnapshot = await readLastSnapshot()
+    const diff = diffMaterialStates(lastSnapshot?.material ?? null, material)
+
+    // ── Gated skip: no material change, not forced, not a full scan ────────
+    if (!scanFull && !force && !diff.changed) {
+      await writeLastSnapshot(material, signals)
+      const skipVerdict = { flagged: false, skipped: true, reason: 'no material change since last snapshot' }
+      const runRecordError = await insertRunRecord({
+        runType: 'gated-skip', verdict: skipVerdict, inputHash, errors, diff: diff.deltas, tokenUsage: null,
+      })
+      return res.status(200).json({
+        skipped: true, runType: 'gated-skip', diff: diff.deltas, runRecordError, sourceErrors: errors,
+      })
     }
 
-    const verdict = await callOneMin(buildPrompt(signals, errors), oneMinKey)
-    const result = { verdict, evaluatedAt: new Date().toISOString() }
+    // ── Gated-triggered (delta payload) or full-scan (complete payload) ────
+    const runType = scanFull ? 'full-scan' : 'gated-triggered'
+    const prompt = scanFull
+      ? buildFullPrompt(signals, errors)
+      : buildDeltaPrompt(signals, material, diff, errors)
+
+    const { verdict, tokenUsage } = await callOneMin(prompt, oneMinKey)
+    const result = { verdict, evaluatedAt: new Date().toISOString(), runType, tokenUsage }
 
     // Persist the flag, but never discard a completed LLM verdict over a
     // storage failure — surface it in the response instead (upsertError).
@@ -319,10 +482,12 @@ export default async function handler(req, res) {
       catch (e) { upsertError = e.message }
     }
 
-    const runRecordError = await insertRunRecord(verdict, inputHash, errors)
+    const runRecordError = await insertRunRecord({ runType, verdict, inputHash, errors, diff: diff.deltas, tokenUsage })
+    await writeLastSnapshot(material, signals)
 
-    await cacheWrite(result, inputHash)
-    return res.status(200).json({ ...result, cached: false, upsertedSignal: upserted?.slug ?? null, upsertError, runRecordError, sourceErrors: errors })
+    return res.status(200).json({
+      ...result, diff: diff.deltas, upsertedSignal: upserted?.slug ?? null, upsertError, runRecordError, sourceErrors: errors,
+    })
   } catch (err) {
     return res.status(500).json({ error: err.message })
   }

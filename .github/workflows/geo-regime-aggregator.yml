@@ -1,11 +1,16 @@
 name: Geo Regime Aggregator
 on:
   schedule:
+    # Routine, diff-gated check (see geo-regime-full-scan.yml for the 1-2x/day
+    # complete-dataset scan). Most of these calls hit the diff-gate and skip
+    # the LLM entirely (gated-skip) — only material changes trigger a call,
+    # and that call sends deltas + chokepoints-always-full, not the full
+    # payload. See api/aggregate-geo-regime.js header comment for the 3 run modes.
     - cron: '10 */4 * * *'  # every 4 hours (offset :10 to dodge top-of-hour congestion)
   workflow_dispatch:  # manual on-demand trigger
     inputs:
       force:
-        description: 'Bypass cache/dedupe and force a fresh LLM evaluation'
+        description: 'Bypass the diff-gate and force a gated-triggered LLM evaluation (delta payload)'
         type: boolean
         default: false
 
