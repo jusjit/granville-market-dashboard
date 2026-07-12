@@ -206,33 +206,74 @@ App.jsx
 ```
 
 ### `api/aggregate-geo-regime.js` (Ben Kim Geo Monitor aggregator)
-- GET/POST, auth `Authorization: Bearer <SNAPSHOT_SECRET>`; `?force=1` bypasses dedupe
+- GET/POST, auth `Authorization: Bearer <SNAPSHOT_SECRET>`
 - Pulls geopolitical signals from worldmonitor.app public API (Hormuz tracker,
-  chokepoint status, shipping stress, theater posture, CII — all 31 Tier-1 countries)
-  + broad scan (added 2026-07-11): `list-cross-source-signals` (military surges, GPS
-  jamming, risk spikes) and `list-ucdp-events` reduced server-side to top-25 country
-  event/death counts + FRED (HY OAS, USD/JPY, WTI spot, VIX as market-pricing
-  cross-checks). Upstream `list-market-implications`/`get-regime-history` are
-  Pro-gated (401) — not usable. Broadening cost: ~9% prompt growth, ~13K tokens per
-  fresh call.
+  chokepoint status, shipping stress, theater posture, CII — all 31 Tier-1 countries,
+  cross-source convergence signals, UCDP reduced to top-25 country event/death counts)
+  + FRED (HY OAS, USD/JPY, WTI spot, VIX as market-pricing cross-checks). Upstream
+  `list-market-implications`/`get-regime-history` are Pro-gated (401) — not usable.
 - **worldmonitor API auth**: needs browser User-Agent (Cloudflare 403 otherwise) and a
   `wms_` session token from `POST /api/wm-session` sent as `X-WorldMonitor-Key` for
   `/v1` gateway endpoints (401 otherwise)
 - Calls 1min.ai claude-sonnet-4-6 with an edge-detector prompt (flag >30% unpriced
-  risks); strict-JSON verdict
-- Dedupe: material-state hash + `geo_regime_cache` Supabase row (3h TTL) — LLM only
-  re-called when chokepoint/CII/macro state materially changes (CII bucketed to 10pts
-  to avoid boundary jitter)
+  risks); strict-JSON verdict. No API-level prompt-caching lever exists in 1min.ai's
+  `promptObject` schema (single flat `prompt` string, no `cache_control`/system
+  field) — checked 2026-07-12, ruled out.
 - flagged=true → upsert `geopolitical_signals` (history trigger appends transitions);
   `current_regime` VIEW is what the dashboard will eventually read as a gate/weight
   on Granville timing rules (never an entry signal). Cross-repo wiring is a future step.
-- EVERY run (flagged or not) also inserts a labeled row into `geo_regime_runs`
-  (verdict jsonb + `categories_considered` + `categories_dismissed_reason` per
-  category) for later analysis of what precedes real market moves. Insert is
-  best-effort — failure surfaces as `runRecordError`, never drops the verdict.
+- EVERY run (skipped, gated, or full-scan) inserts a labeled row into `geo_regime_runs`
+  (verdict jsonb + `categories_considered` + `categories_dismissed_reason` +
+  `run_type` + `diff` + `token_usage` per category) for later analysis of what
+  precedes real market moves. Insert is best-effort — failure surfaces as
+  `runRecordError`, never drops the verdict.
 - **Private-project gotcha**: middleware.js password gate 401s any /api path not in
   OPEN_PATHS *before* the function runs — new cron endpoints must be allowlisted
   there (aggregate-geo-regime was added 2026-07-11 after the cron failed with 401).
+
+#### Diff-gate (added 2026-07-12 — cost reduction, no signal tracking removed)
+Three run modes, tagged via `geo_regime_runs.run_type`:
+- **gated-skip**: fresh pull compared against `geo_regime_last_snapshot` (raw +
+  bucketed state from the last run — NOT synthesis output, cheap Supabase-only
+  comparison, no LLM). If nothing crossed a material-change threshold, the LLM
+  is skipped entirely — **0 tokens** — and a lightweight run row is still logged.
+- **gated-triggered**: something changed → calls the LLM with a delta prompt:
+  chokepoints (+ hormuz) always sent in full (core to the trading thesis — this
+  was the "adjust if there's a better rule" default, kept as-is after review);
+  every other category sent in full ONLY if it appears in the diff, otherwise a
+  compact bucketed summary line. This is the routine `geo-regime-aggregator.yml`
+  cron (every 4h, unchanged schedule).
+- **full-scan**: always the complete dataset regardless of diff. New
+  `geo-regime-full-scan.yml` cron, 2x/day (13:25/21:05 UTC weekdays, matches
+  `dashboard-snapshot.yml` cadence) — `?scan=full`. Preserves full
+  `categories_considered`/`categories_dismissed_reason` coverage periodically
+  even though routine runs now only re-examine what moved.
+- `?force=1` bypasses the gate but stays in gated-triggered (delta) mode — for
+  manually testing the routine path without waiting for a real change.
+- Threshold constants live in `THRESHOLDS` at the top of the file (chokepoint
+  disruption score, CII points, UCDP event/death counts, FRED move sizes,
+  etc.) — tunable, flagged as such in the code.
+- **Real measured token usage** (2026-07-12, claude-sonnet-4-6 via 1min.ai,
+  from `aiRecord.metadata` — not estimated): full-scan ≈ 20.8K input / 23.2K
+  total tokens per call. Gated-triggered with only 1 of 11 categories changed
+  ≈ 9.4-10.4K input / 11-12.4K total tokens (~50% below full-scan even when
+  something DID change, because unchanged categories are summarized not
+  resent). Gated-skip = 0 tokens by construction — the code returns before
+  `callOneMin` is ever invoked. At 6x/day on the 4h cron, if most runs skip or
+  hit small deltas, real daily usage drops sharply from the pre-diff-gate
+  baseline of ~13K tokens × 6 calls region into far fewer full-payload calls.
+  Exact savings depend on how often the tracked signals actually move —
+  reviewable later via `run_type`/`token_usage` in `geo_regime_runs`.
+- **Bug caught during verification**: `gatherSignals()`'s keys don't match
+  `computeMaterialState()`'s keys 1:1 (`shippingStress` vs `shipping`,
+  `theaterPosture` vs `posture`, `riskScores` vs `cii`, `crossSourceSignals`
+  vs `crossSource`, `ucdpSummary` vs `ucdp`, `wtiSpot` vs `wti`). The delta
+  prompt builder originally checked changed-category membership using the
+  wrong key namespace, silently summarizing those 6 categories even when they
+  materially changed. Fixed via an explicit `SIGNAL_TO_MATERIAL_KEY` map;
+  verified by asserting `JSON.stringify(fullPayload).length ===
+  JSON.stringify(signals).length` when every category is flagged changed.
+  Watch for this class of bug if either object's key set changes again.
 
 ### Geo Regime Panel (WIP — scaffolded 2026-07-11, NOT shipped)
 
