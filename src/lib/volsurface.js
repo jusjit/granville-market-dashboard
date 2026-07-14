@@ -7,6 +7,14 @@ export async function fetchVolSurface() {
   return res.json()
 }
 
+// Recent persisted snapshots for the history slider (newest first).
+export async function fetchVolHistory() {
+  const res = await fetch('/api/vol-history')
+  if (!res.ok) throw new Error(`vol-history ${res.status}`)
+  const data = await res.json()
+  return data.snapshots ?? []
+}
+
 // Hardcoded 2026 recurring macro events (approximate standard schedule).
 // FOMC = decision day (second day of meeting); NFP = first Friday; CPI ≈ mid-month.
 const EVENTS_2026 = [

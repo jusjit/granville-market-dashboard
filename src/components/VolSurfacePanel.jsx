@@ -1,5 +1,6 @@
+import { useState, useEffect } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
-import { annotateEvents } from '../lib/volsurface'
+import { annotateEvents, fetchVolHistory } from '../lib/volsurface'
 
 // Series colors validated for dark surfaces (dataviz palette slots 1–2);
 // kink status colors from the fixed status palette.
@@ -8,14 +9,18 @@ const C = {
   forward: '#199e70',   // aqua — forward IV
   kink: '#fab219',      // warning — kink detected
   confirmed: '#d03b3b', // critical — kink confirmed by spot-into-forward
+  lowConf: '#898781',   // muted — low-confidence reading
   grid: '#2c2c2a',
   ink: '#898781',
 }
 
-function KinkDot({ cx, cy, payload }) {
-  if (!payload.kink) {
-    return <circle cx={cx} cy={cy} r={3} fill={C.spot} />
+function SpotDot({ cx, cy, payload }) {
+  if (cx == null || cy == null) return null
+  // Low-confidence readings render as a hollow grey dot regardless of kink state.
+  if (payload.lowConfidence) {
+    return <circle cx={cx} cy={cy} r={4} fill="none" stroke={C.lowConf} strokeWidth={1.5} strokeDasharray="2 1.5" />
   }
+  if (!payload.kink) return <circle cx={cx} cy={cy} r={3} fill={C.spot} />
   const color = payload.confirmed ? C.confirmed : C.kink
   return (
     <g>
@@ -29,8 +34,8 @@ function VolTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null
   const p = payload[0].payload
   return (
-    <div className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs shadow-xl">
-      <p className="font-semibold text-slate-200 mb-1">{label}</p>
+    <div className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs shadow-xl max-w-xs">
+      <p className="font-semibold text-slate-200 mb-1">{label}{p.root ? ` · ${p.root}` : ''}</p>
       <p style={{ color: C.spot }}>Spot IV: {(p.spotIV * 100).toFixed(2)}%</p>
       {p.forwardIV != null && (
         <p style={{ color: C.forward }}>Forward IV: {(p.forwardIV * 100).toFixed(2)}%</p>
@@ -43,11 +48,50 @@ function VolTooltip({ active, payload, label }) {
           {p.confirmed ? '⚠ Confirmed kink — real hedging flow' : 'Kink — elevated vs neighbors'}
         </p>
       )}
+      {p.lowConfidence && p.flags?.length > 0 && (
+        <p className="mt-1.5 pt-1.5 border-t border-slate-800 text-[11px]" style={{ color: C.lowConf }}>
+          ⚠ Low confidence: {p.flags.join('; ')}
+        </p>
+      )}
     </div>
   )
 }
 
+function toRows(surface) {
+  return annotateEvents(surface.points).map(p => ({
+    ...p,
+    tick: p.expiration.slice(5) + (p.events.length ? ` ${p.events.join('/')}` : ''),
+  }))
+}
+
+function fmtTime(iso) {
+  return new Date(iso).toLocaleString('en-US', {
+    timeZone: 'America/New_York', month: 'short', day: 'numeric',
+    hour: 'numeric', minute: '2-digit',
+  })
+}
+
 export default function VolSurfacePanel({ data, loading, error }) {
+  const [historyMode, setHistoryMode] = useState(false)
+  const [snapshots, setSnapshots] = useState([])
+  const [selIdx, setSelIdx] = useState(0)
+  const [histError, setHistError] = useState(null)
+
+  // Snapshots are ordered newest-first from the API; reverse for the slider so
+  // left = oldest, right = newest.
+  const ordered = [...snapshots].reverse()
+
+  useEffect(() => {
+    if (historyMode && snapshots.length === 0) {
+      fetchVolHistory()
+        .then(rows => {
+          setSnapshots(rows)
+          setSelIdx(Math.max(0, rows.length - 1)) // default to most recent
+        })
+        .catch(err => setHistError(err.message))
+    }
+  }, [historyMode, snapshots.length])
+
   if (loading) {
     return (
       <div className="rounded-xl border border-slate-800 bg-slate-900/40 px-5 py-8 text-center text-sm text-slate-600 animate-pulse">
@@ -64,25 +108,68 @@ export default function VolSurfacePanel({ data, loading, error }) {
   }
   if (!data?.points?.length) return null
 
-  const points = annotateEvents(data.points).map(p => ({
-    ...p,
-    // recharts-friendly short label with event tag
-    tick: p.expiration.slice(5) + (p.events.length ? ` ${p.events.join('/')}` : ''),
-  }))
+  const viewingHistory = historyMode && ordered.length > 0
+  const selected = viewingHistory ? ordered[selIdx] : null
+  const surface = viewingHistory ? selected : data
+  const points = toRows(surface)
   const kinks = points.filter(p => p.kink)
+  const lowConf = points.filter(p => p.lowConfidence)
 
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
       <div className="flex items-baseline justify-between flex-wrap gap-2 mb-1">
         <p className="text-xs text-slate-500">
-          SPX ATM implied vol term structure · spot {data.spot?.toFixed(2)} · Tradier/ORATS
+          SPX ATM implied vol term structure · spot {surface.spot?.toFixed(2)} · Tradier/ORATS · SPXW
         </p>
+        <button
+          onClick={() => setHistoryMode(v => !v)}
+          className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${
+            historyMode
+              ? 'text-indigo-300 bg-indigo-950/40 border-indigo-800/60'
+              : 'text-slate-500 bg-slate-900/40 border-slate-800 hover:text-slate-300'
+          }`}
+        >
+          {historyMode ? '● Viewing history' : 'View history'}
+        </button>
+      </div>
+
+      {historyMode && (
+        <div className="mb-3 rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2">
+          {histError ? (
+            <p className="text-[11px] text-red-400">History unavailable — {histError}</p>
+          ) : ordered.length === 0 ? (
+            <p className="text-[11px] text-slate-600">No snapshots stored yet — the 2-hourly cron will populate this.</p>
+          ) : (
+            <div className="flex items-center gap-3">
+              <input
+                type="range"
+                min={0}
+                max={ordered.length - 1}
+                value={selIdx}
+                onChange={e => setSelIdx(parseInt(e.target.value, 10))}
+                className="flex-1 accent-indigo-500"
+              />
+              <span className="text-[11px] text-slate-400 font-mono whitespace-nowrap">
+                {fmtTime(selected.captured_at)}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="flex items-baseline justify-between flex-wrap gap-2 mb-1">
         <p className="text-[10px] text-slate-600">
           {kinks.length === 0
             ? 'No kinks detected — smooth term structure'
             : `${kinks.length} kink${kinks.length > 1 ? 's' : ''}: ${kinks.map(k => k.expiration + (k.confirmed ? ' (confirmed)' : '')).join(', ')}`}
         </p>
+        {lowConf.length > 0 && (
+          <p className="text-[10px]" style={{ color: C.lowConf }}>
+            {lowConf.length} low-confidence reading{lowConf.length > 1 ? 's' : ''}
+          </p>
+        )}
       </div>
+
       <div className="h-72">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={points} margin={{ top: 12, right: 16, bottom: 4, left: 0 }}>
@@ -106,16 +193,13 @@ export default function VolSurfacePanel({ data, loading, error }) {
               domain={['auto', 'auto']}
             />
             <Tooltip content={<VolTooltip />} />
-            <Legend
-              wrapperStyle={{ fontSize: 11, color: '#c3c2b7' }}
-              iconType="plainline"
-            />
+            <Legend wrapperStyle={{ fontSize: 11, color: '#c3c2b7' }} iconType="plainline" />
             <Line
               name="Spot IV"
               dataKey="spotIV"
               stroke={C.spot}
               strokeWidth={2}
-              dot={<KinkDot />}
+              dot={<SpotDot />}
               activeDot={{ r: 5 }}
               isAnimationActive={false}
             />
@@ -133,6 +217,7 @@ export default function VolSurfacePanel({ data, loading, error }) {
           </LineChart>
         </ResponsiveContainer>
       </div>
+
       <div className="flex items-center gap-4 mt-2 text-[10px] text-slate-500 flex-wrap">
         <span className="flex items-center gap-1.5">
           <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: C.kink }} />
@@ -140,7 +225,11 @@ export default function VolSurfacePanel({ data, loading, error }) {
         </span>
         <span className="flex items-center gap-1.5">
           <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: C.confirmed }} />
-          Confirmed — spot IV ≥ 90% of forward IV (real put buying)
+          Confirmed — spot IV ≥ 90% of forward IV
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-full inline-block border border-dashed" style={{ borderColor: C.lowConf }} />
+          Low confidence — stale/wide/jumped
         </span>
         <span className="ml-auto">Events hardcoded 2026: FOMC · NFP · CPI</span>
       </div>

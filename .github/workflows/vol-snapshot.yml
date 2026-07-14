@@ -1,0 +1,20 @@
+name: Vol Surface Snapshots
+on:
+  schedule:
+    # Every 2h during RTH (13:30–20:30 UTC = 9:30am–4:30pm EDT), weekdays.
+    # ⚠️ DST: after Nov 1 2026 (EST) shift each hour +1 (14/16/18/20/21 UTC).
+    - cron: '30 13 * * 1-5'  # ~9:30am EDT open
+    - cron: '30 15 * * 1-5'  # ~11:30am EDT
+    - cron: '30 17 * * 1-5'  # ~1:30pm EDT
+    - cron: '30 19 * * 1-5'  # ~3:30pm EDT
+    - cron: '5 20 * * 1-5'   # ~4:05pm EDT close
+  workflow_dispatch:
+
+jobs:
+  vol-snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Capture vol surface snapshot
+        run: |
+          curl -f -X GET "https://private-market-dashboard.vercel.app/api/snapshot-vol" \
+            -H "Authorization: Bearer ${{ secrets.SNAPSHOT_SECRET }}"
