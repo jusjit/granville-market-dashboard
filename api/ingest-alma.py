@@ -458,11 +458,11 @@ def parse_post_html(raw_html, subject):
     # Captures BOTH the pivot and its target; falls back to the standalone
     # extractors for whichever side the pair pattern doesn't match.
     dn_pair = re.search(
-        r'[Dd]ownside pivot is (?:at\s+)?([\d,]+\.?\d+)[^.]{0,15}?'
-        r'(?:[Tt]arget is|with target of|target of)\s*([\d,]+\.?\d+)', text)
+        r'[Dd]ownside pivot is (?:at\s+)?([\d,]+\.?\d+)[^.]{0,25}?'
+        r'(?:[Tt]arget is|with target of|target of)\s*(?:at\s+)?([\d,]+\.?\d+)', text)
     up_pair = re.search(
-        r'[Uu]pside pivot is (?:at\s+)?([\d,]+\.?\d+)[^.]{0,15}?'
-        r'(?:[Tt]arget is|with target of|target of)\s*([\d,]+\.?\d+)', text)
+        r'[Uu]pside pivot is (?:at\s+)?([\d,]+\.?\d+)[^.]{0,25}?'
+        r'(?:[Tt]arget is|with target of|target of)\s*(?:at\s+)?([\d,]+\.?\d+)', text)
 
     up_piv = float(up_pair.group(1).replace(',','')) if up_pair else None
     if up_piv is None:
@@ -473,11 +473,15 @@ def parse_post_html(raw_html, subject):
 
     up_tgt = float(up_pair.group(2).replace(',','')) if up_pair else None
     if up_tgt is None:
-        up_tgt = _id_get_level([r'[Uu]pside[^.]{0,160}?target[^.]{0,80}?([\d,]+\.?\d+)'], text)
+        up_tgt = _id_get_level([
+            r'[Uu]pside[^.]{0,160}?target[^.]{0,80}?(?:is\s+)?(?:at\s+)?([\d,]+\.?\d+)',
+        ], text)
     dn_tgt = float(dn_pair.group(2).replace(',','')) if dn_pair else None
     if dn_tgt is None:
-        dn_tgt = _id_get_level([r'[Dd]ownside[^.]{0,160}?target[^.]{0,80}?([\d,]+\.?\d+)',
-                         r'primal target of\s+([\d,]+\.?\d+)'], text)
+        dn_tgt = _id_get_level([
+            r'[Dd]ownside[^.]{0,160}?target[^.]{0,80}?(?:is\s+)?(?:at\s+)?([\d,]+\.?\d+)',
+            r'primal target of\s+(?:at\s+)?([\d,]+\.?\d+)',
+        ], text)
     zv  = extract_zero_vanna(text)
     cf  = extract_charm_flip(text)
 
