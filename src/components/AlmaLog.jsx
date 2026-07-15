@@ -2,9 +2,15 @@
 // by the session range (market_data high/low). Updates once market_data has
 // a row for the trading day.
 
+// 0.1% touch tolerance — matches the original backtest (alma_pipeline_final.py
+// TOL=0.001): a level counts as touched if its ±0.1% band overlaps the session
+// high/low, not only on an exact intersection.
+const TOL = 0.001
+
 function touched(level, low, high) {
   if (level == null || low == null || high == null) return null
-  return low <= level && level <= high
+  const adj = level * TOL
+  return low <= level + adj && high >= level - adj
 }
 
 export default function AlmaLog({ data }) {
@@ -44,6 +50,7 @@ export default function AlmaLog({ data }) {
       <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
         <p className="text-xs text-slate-500 mb-3">
           {hits} of {entries.length} tracked levels touched this session
+          <span className="text-slate-600"> · ±0.1% tolerance (matches backtest)</span>
         </p>
         <ul className="space-y-2">
           {entries.map(e => (
@@ -60,6 +67,9 @@ export default function AlmaLog({ data }) {
               </span>
               <span className="text-slate-300">{e.label}</span>
               <span className="font-mono text-slate-400 ml-auto">{e.value.toFixed(2)}</span>
+              <span className="font-mono text-[10px] text-slate-600 shrink-0" title={`±0.1% tolerance band: ${(e.value * (1 - TOL)).toFixed(2)}–${(e.value * (1 + TOL)).toFixed(2)}`}>
+                ±{(e.value * TOL).toFixed(2)}
+              </span>
             </li>
           ))}
         </ul>
