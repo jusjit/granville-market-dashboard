@@ -148,16 +148,37 @@ async function gatherSignals() {
 // is material — no numeric threshold makes sense there).
 const THRESHOLDS = {
   chokepointDisruptionScore: 10, // points (0-100 scale)
-  ciiCombinedScore: 10,          // points — CN 57.4↔57.6 jitter observed pre-bucketing
+  // ciiCombinedScore + theaterActiveFlights widened 2026-07-14 after a
+  // diagnostic pass on 18 real production cron runs showed posture (93%)
+  // and cii (71%) firing on almost every cycle — a live A/B pull of
+  // get-theater-posture 4 minutes apart (no real event) showed
+  // south-china-sea activeFlights swing 3->1, which the OLD 5-count bucket
+  // alone would have registered as material. Widened AND given hysteresis
+  // (see HYSTERESIS_CATEGORIES below) as a belt-and-suspenders fix.
+  ciiCombinedScore: 20,          // points — was 10; CN 57.4↔57.6-style jitter persisted even at 10
   ucdpEventCount: 25,            // per-country event count
   ucdpDeathCount: 50,            // per-country death count
   shippingChangePct: 2,          // carrier % change points
-  theaterActiveFlights: 5,       // count
+  theaterActiveFlights: 15,      // count — was 5; single-digit counts jitter within minutes
   hyOas: 0.25,                   // percentage points
   yen: 2,                        // USD/JPY
   wti: 2,                        // USD per barrel
   vix: 1,                        // VIX points
 }
+
+// Categories that require the SAME deviation to be observed on two
+// consecutive polls before counting as material (added 2026-07-14).
+// Rationale: even after widening THRESHOLDS above, posture/cii are the two
+// categories whose underlying upstream values are demonstrably noisy at
+// sub-cycle timescales (see comment above) — a single-poll threshold alone
+// can't fully distinguish "real, sustained move" from "telemetry jitter that
+// happens to cross a bucket boundary." Every other category (chokepoints,
+// shipping, ucdp, crossSource, hormuz, FRED series) proved stable in the
+// same production data and does NOT get this treatment — don't add it
+// reflexively; each addition here delays real-change detection by up to one
+// extra cron interval (4h), which is only worth it where noise has been
+// directly observed.
+const HYSTERESIS_CATEGORIES = new Set(['posture', 'cii'])
 
 const round = (v, step) => (v == null ? null : Math.round(v / step) * step)
 const latest = arr => (Array.isArray(arr) && arr[0] ? arr[0].value : null)
@@ -181,6 +202,14 @@ function computeMaterialState(s) {
     cii: (s.riskScores?.ciiScores ?? [])
       .filter(c => ['TW', 'CN', 'IR', 'IL', 'JP', 'SA', 'YE', 'EG', 'RU', 'UA'].includes(c.region))
       .map(c => `${c.region}:${round(Number(c.combinedScore ?? 0), THRESHOLDS.ciiCombinedScore)}`).sort(),
+    // crossSourceSignals[].id is itself compound (e.g. "risk:ua",
+    // "gpsjam:western-europe") — diffListField's default keyOf (text before
+    // the FIRST colon) would collapse "risk:ua" and "risk:ru" into the same
+    // key, making a top-ranked-country ROTATION (different real entity) look
+    // like one entity's value changing. Caught during the 2026-07-14
+    // diagnostic pass (crossSource fired on 86% of cron runs). Fixed via a
+    // custom keyOf in diffListField (see CROSS_SOURCE_KEY_OF below) that
+    // keeps the full id intact.
     crossSource: (s.crossSourceSignals?.signals ?? [])
       .map(x => `${x.id}:${x.severity ?? ''}`).sort(),
     ucdp: (Array.isArray(s.ucdpSummary) ? s.ucdpSummary : [])
@@ -194,9 +223,10 @@ function computeMaterialState(s) {
 
 // List-field entries are "key:...rest" strings (e.g. "hormuz_strait:red:70").
 // Diff by key so a bucket change reads as one clean "id: old -> new" delta
-// instead of an opaque add/remove pair.
-function diffListField(prevArr = [], currArr = []) {
-  const keyOf = s => s.split(':')[0]
+// instead of an opaque add/remove pair. Default keyOf (text before the
+// FIRST colon) is correct for flat single-token ids (chokepoints, cii,
+// shipping, ucdp, posture). crossSource needs a custom keyOf — see below.
+function diffListField(prevArr = [], currArr = [], keyOf = s => s.split(':')[0]) {
   const prevMap = new Map(prevArr.map(s => [keyOf(s), s]))
   const currMap = new Map(currArr.map(s => [keyOf(s), s]))
   const deltas = []
@@ -210,6 +240,17 @@ function diffListField(prevArr = [], currArr = []) {
   return deltas
 }
 
+// crossSource entries are "<id>:<severity>" where <id> can itself contain a
+// colon (e.g. "risk:ua"). Severity values (CROSS_SOURCE_SIGNAL_SEVERITY_*)
+// never contain a colon, so "drop the last colon-segment" correctly
+// recovers the full id as the key — unlike the default keyOf, which would
+// truncate "risk:ua" down to just "risk".
+const CROSS_SOURCE_KEY_OF = s => s.split(':').slice(0, -1).join(':')
+
+const LIST_FIELD_KEY_OF = {
+  crossSource: CROSS_SOURCE_KEY_OF,
+}
+
 // Returns { changed, deltas } where deltas is { <category>: delta[] | {from,to} }.
 // prev === null (first-ever run, no snapshot yet) treats everything as new —
 // natural bootstrap: first run always triggers, same as a bare full-scan.
@@ -218,7 +259,7 @@ function diffMaterialStates(prev, curr) {
   let changed = false
   for (const key of Object.keys(curr)) {
     if (Array.isArray(curr[key])) {
-      const d = diffListField(prev?.[key] ?? [], curr[key])
+      const d = diffListField(prev?.[key] ?? [], curr[key], LIST_FIELD_KEY_OF[key])
       if (d.length) { deltas[key] = d; changed = true }
     } else {
       const p = prev ? (prev[key] ?? null) : null
@@ -226,6 +267,63 @@ function diffMaterialStates(prev, curr) {
     }
   }
   return { changed, deltas }
+}
+
+// Deep-equal check for a single category's material value (string array or
+// scalar) — used by the hysteresis resolver to test "did the SAME candidate
+// value repeat on the next poll".
+function materialValueEqual(a, b) {
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return JSON.stringify(a ?? []) === JSON.stringify(b ?? [])
+  }
+  return (a ?? null) === (b ?? null)
+}
+
+// Two-poll hysteresis for HYSTERESIS_CATEGORIES (posture, cii): a category's
+// change is only promoted to "material" once the SAME fresh value has been
+// observed on two consecutive runs. `confirmed` is the last promoted
+// baseline (what the LLM has already seen); `pending` is the not-yet-
+// confirmed candidate from the previous run (null if there wasn't one).
+//
+// Returns { changed, deltas, nextConfirmed, nextPending, pendingCategories }
+// — nextConfirmed/nextPending are full material-shaped objects to persist;
+// pendingCategories lists categories currently awaiting a second poll
+// (surfaced in gated-skip run records for visibility, not just silence).
+function resolveGatedDiff(confirmed, pending, fresh) {
+  const immediate = diffMaterialStates(confirmed, fresh)
+  const deltas = {}
+  let changed = false
+  const nextConfirmed = { ...fresh }
+  const nextPending = {}
+  const pendingCategories = []
+
+  for (const key of Object.keys(fresh)) {
+    if (!HYSTERESIS_CATEGORIES.has(key)) {
+      // Non-hysteresis category: immediate comparison, unchanged behavior.
+      if (immediate.deltas[key]) { deltas[key] = immediate.deltas[key]; changed = true }
+      continue
+    }
+    if (!immediate.deltas[key]) {
+      // Matches the confirmed baseline — nothing pending, nothing to promote.
+      nextConfirmed[key] = fresh[key]
+      continue
+    }
+    // Fresh deviates from confirmed. Only promote if this SAME deviation
+    // was already the pending candidate (i.e. seen on the prior poll too).
+    if (pending && materialValueEqual(pending[key], fresh[key])) {
+      deltas[key] = immediate.deltas[key] // from confirmed -> fresh, same as before
+      changed = true
+      nextConfirmed[key] = fresh[key]
+      // nextPending[key] left unset — reset after promotion.
+    } else {
+      // First time seeing this deviation (or it differs from what was
+      // pending) — hold the confirmed baseline, start/update the candidate.
+      nextConfirmed[key] = confirmed ? (confirmed[key] ?? fresh[key]) : fresh[key]
+      nextPending[key] = fresh[key]
+      pendingCategories.push(key)
+    }
+  }
+  return { changed, deltas, nextConfirmed, nextPending, pendingCategories }
 }
 
 const SYSTEM_PROMPT = `You are a geopolitical-to-markets edge detector. Your job is to flag risks BEFORE mainstream financial news picks them up — not to summarize current events.
@@ -356,19 +454,19 @@ function sb() {
 async function readLastSnapshot() {
   const c = sb(); if (!c) return null
   try {
-    const r = await fetch(`${c.url}/rest/v1/geo_regime_last_snapshot?id=eq.1&select=material,raw,captured_at`, { headers: c.headers })
+    const r = await fetch(`${c.url}/rest/v1/geo_regime_last_snapshot?id=eq.1&select=material,pending,raw,captured_at`, { headers: c.headers })
     if (!r.ok) return null
     return (await r.json())[0] ?? null
   } catch { return null }
 }
 
-async function writeLastSnapshot(material, raw) {
+async function writeLastSnapshot(material, pending, raw) {
   const c = sb(); if (!c) return
   try {
     await fetch(`${c.url}/rest/v1/geo_regime_last_snapshot?on_conflict=id`, {
       method: 'POST',
       headers: { ...c.headers, Prefer: 'resolution=merge-duplicates' },
-      body: JSON.stringify([{ id: 1, material, raw, captured_at: new Date().toISOString() }]),
+      body: JSON.stringify([{ id: 1, material, pending, raw, captured_at: new Date().toISOString() }]),
     })
   } catch { /* non-fatal */ }
 }
@@ -451,17 +549,28 @@ export default async function handler(req, res) {
     const inputHash = JSON.stringify(material)
 
     const lastSnapshot = await readLastSnapshot()
-    const diff = diffMaterialStates(lastSnapshot?.material ?? null, material)
+    const confirmed = lastSnapshot?.material ?? null
+    const pending = lastSnapshot?.pending ?? null
+
+    // Full-scan always looks at the complete dataset and, since it's a full
+    // fresh look-through, resets confirmed to current values across every
+    // category and clears any pending hysteresis candidate outright.
+    const gated = resolveGatedDiff(confirmed, pending, material)
+    const diff = scanFull ? diffMaterialStates(confirmed, material) : gated
 
     // ── Gated skip: no material change, not forced, not a full scan ────────
     if (!scanFull && !force && !diff.changed) {
-      await writeLastSnapshot(material, signals)
-      const skipVerdict = { flagged: false, skipped: true, reason: 'no material change since last snapshot' }
+      await writeLastSnapshot(gated.nextConfirmed, gated.nextPending, signals)
+      const skipVerdict = {
+        flagged: false, skipped: true, reason: 'no material change since last snapshot',
+        pendingCategories: gated.pendingCategories,
+      }
       const runRecordError = await insertRunRecord({
         runType: 'gated-skip', verdict: skipVerdict, inputHash, errors, diff: diff.deltas, tokenUsage: null,
       })
       return res.status(200).json({
-        skipped: true, runType: 'gated-skip', diff: diff.deltas, runRecordError, sourceErrors: errors,
+        skipped: true, runType: 'gated-skip', diff: diff.deltas,
+        pendingCategories: gated.pendingCategories, runRecordError, sourceErrors: errors,
       })
     }
 
@@ -483,7 +592,10 @@ export default async function handler(req, res) {
     }
 
     const runRecordError = await insertRunRecord({ runType, verdict, inputHash, errors, diff: diff.deltas, tokenUsage })
-    await writeLastSnapshot(material, signals)
+    // Full-scan: promote everything, clear all pending. Gated-triggered:
+    // gated.nextConfirmed/nextPending already reflect the hysteresis outcome.
+    if (scanFull) await writeLastSnapshot(material, {}, signals)
+    else await writeLastSnapshot(gated.nextConfirmed, gated.nextPending, signals)
 
     return res.status(200).json({
       ...result, diff: diff.deltas, upsertedSignal: upserted?.slug ?? null, upsertError, runRecordError, sourceErrors: errors,
