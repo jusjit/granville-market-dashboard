@@ -275,6 +275,50 @@ Three run modes, tagged via `geo_regime_runs.run_type`:
   JSON.stringify(signals).length` when every category is flagged changed.
   Watch for this class of bug if either object's key set changes again.
 
+#### Diff-gate tuning (2026-07-14 — the gate was never actually skipping)
+A diagnostic pass on the first 18 real production cron runs found **0
+gated-skip runs** — posture fired on 93% of cycles, crossSource 86%, cii 71%,
+effectively defeating the gate for most of the day. Root causes, confirmed
+live (not just theorized) before fixing:
+- Pulled `get-theater-posture` twice, 4 minutes apart, no code changes, no
+  real event: `south-china-sea.activeFlights` moved 3→1 — under the OLD
+  5-count bucket that alone crosses a bucket boundary. Upstream counts are
+  genuinely noisy at single-digit scale on a multi-minute cadence; a 4h cron
+  will accumulate enough drift to trip a tight bucket almost every cycle.
+- `crossSourceSignals[].id` is compound (`"risk:ua"`, `"gpsjam:western-europe"`).
+  The old keyOf (text before the first colon) collapsed different countries
+  under the same category into one "entity," so a top-ranked-country rotation
+  (`risk:ua` → `risk:ru` — a different real signal) looked like one entity
+  changing value every cycle.
+
+Fixes (in `THRESHOLDS`, `HYSTERESIS_CATEGORIES`, `resolveGatedDiff()`,
+`CROSS_SOURCE_KEY_OF`):
+- `theaterActiveFlights` 5→15, `ciiCombinedScore` 10→20 (widened).
+- posture + cii additionally get **two-poll hysteresis**: a deviation is only
+  promoted to "material" once the SAME value is observed on two consecutive
+  4h cycles. `geo_regime_last_snapshot.pending` holds the not-yet-confirmed
+  candidate between runs (new column, migration
+  `supabase_geo_regime_hysteresis.sql`). Nothing else got hysteresis —
+  chokepoints/shipping/ucdp/hormuz/FRED proved stable in the same data and
+  don't need the extra 4h detection delay.
+- crossSource keyOf fixed to keep the full compound id intact (`CROSS_SOURCE_KEY_OF`).
+- full-scan mode bypasses hysteresis entirely — always promotes/resets the
+  confirmed baseline across every category, consistent with its "always
+  complete dataset" contract.
+- Unit-verified (4 synthetic scenarios: single-poll noise suppressed,
+  revert-before-confirm clears the pending candidate, sustained 2-poll
+  change promotes with a clean delta, non-hysteresis categories unaffected)
+  before any live call. First live run post-deploy: posture matched the
+  confirmed baseline exactly (no deviation at all); cii deviated but was
+  correctly held as `pending` rather than promoted — visible directly in
+  `geo_regime_last_snapshot.pending`. Tokens on that run: 11.2K input / 13.1K
+  total, already below the typical pre-fix 14-17K.
+- Review `run_type` counts in `geo_regime_runs` after a few more days to
+  confirm gated-skip actually starts appearing at a reasonable rate; if
+  posture/cii still fire most cycles, the next lever is widening further or
+  extending hysteresis to more categories — not reflexively, only where
+  production data shows real noise (same discipline as this pass).
+
 ### Geo Regime Panel (WIP — scaffolded 2026-07-11, NOT shipped)
 
 This will eventually be dashboard section 7, **private project only** (same
