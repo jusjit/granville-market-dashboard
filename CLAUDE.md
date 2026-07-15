@@ -42,7 +42,7 @@ Private project ONLY: `VITE_SHOW_ALMA=true` (its absence hides Alma on public).
 Not set anywhere yet; the panel isn't wired into `App.jsx` so the flag would currently do nothing.
 
 ## Supabase (project "LalliChaths", https://oteatsbkdamvczdceion.supabase.co)
-Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX/VIX OHLC + gaps), `rules` (16 backtested rules with confidence tiers).
+Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX/VIX OHLC + gaps), `rules` (16 backtested rules with confidence tiers), `dashboard_snapshots` (twice-daily Granville+macro), `synthesis_cache` (id=1, AI synthesis 2h cache), `vol_surface_snapshots` (2-hourly vol term structure for history slider).
 - RLS enabled, no policies — only service role key reads/writes.
 - `intraday_posts`/`weekly_posts`: unique constraint on `date`, identity ids (for webhook upserts).
 - Original data migrated from SQLite (`Alma backtest rules/` folder, gitignored).
@@ -63,12 +63,14 @@ Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX
 
 ### `api/synthesis.js`
 - POST `/api/synthesis` with body `{ granvilleData, macroData }`
-- Calls **1min.ai** to generate AI paragraph via Claude
+- Calls **1min.ai** to generate the AI synthesis via Claude
 - **Model**: `claude-sonnet-4-6`
 - **Format**: `{ type: "CHAT", model: "claude-sonnet-4-6", promptObject: { prompt, isMixed: false } }`
 - **Endpoint**: `https://api.1min.ai/api/chat-with-ai` with header `API-KEY: <key>`
 - Response path: `data.aiRecord.aiRecordDetail.resultObject[0]`
-- In-memory cache: 20-min TTL, invalidated on signal state change (hash-based)
+- **Minto pyramid output**: prompt requires `Bottom line: …` / `Why:` bullets / `Session lean: …`. SynthesisPanel.jsx parses these into bold lead + bullet list + footer; falls back to plain paragraph if unstructured. Divergence warning forced in as a driver when active.
+- Persistent Supabase cache (`synthesis_cache` id=1), 2h TTL + input-hash invalidation. ~4–6 1min.ai calls/day.
+- Note: 1min.ai sometimes returns em-dashes as mojibake — cosmetic, from their API encoding.
 
 ### CRITICAL: 1min.ai API format
 `messages: [{role, content}]` format → **REJECTED** (PROMPT_OBJECT_VALIDATION_FAILED)
@@ -79,9 +81,14 @@ Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX
 - Evaluates the 16 rules with explicit per-rule_id JS (no eval); returns `{ intraday, weekly, market, activeRules }`
 - `s-maxage=300`. Feeds AlmaPanel + AlmaLog (private dashboard only).
 
-### `api/tradier.js` (vol surface)
-- SPX options chains via Tradier (ORATS greeks): first 4 dailies + Fridays to 60d (max 12 expiries)
-- ATM IV per expiry, forward IV `FIV=√((IV₂²T₂−IV₁²T₁)/(T₂−T₁))`, kink = >15% above neighbor interpolation, confirmed = spot IV ≥ 90% of forward. `s-maxage=120`.
+### Vol surface (`api/tradier.js` live + `api/snapshot-vol.js` cron + `api/vol-history.js`)
+- Compute shared in **`lib/volSurfaceCore.mjs`** (imported by both routes so they never diverge).
+- SPX options via Tradier (ORATS greeks): first 4 dailies + Fridays to 60d (max 12 expiries).
+- **CRITICAL — SPXW only**: every strike has TWO contracts, SPX (AM-settled) + SPXW (PM-settled). Original bug averaged both → erratic near-dated IV. Now filters to SPXW (SPX fallback).
+- **ATM IV interpolated** between the two strikes bracketing spot (distance-weighted) — not nearest-strike snapping (which jumped when spot crossed a strike).
+- Uses ORATS `mid_iv` (not last-trade). Per-expiry flags: `wideSpread` (ask_iv−bid_iv >3 vol pts), `lowConfidence` (outside RTH, wide spread, or >20% jump vs last snapshot). Rendered as dashed grey dots + tooltip reasons.
+- Forward IV `FIV=√((IV₂²T₂−IV₁²T₁)/(T₂−T₁))`, kink >15% above neighbor interpolation, confirmed = spot IV ≥ 90% forward. `s-maxage=120`.
+- **History slider**: `snapshot-vol.js` (Bearer SNAPSHOT_SECRET) writes `vol_surface_snapshots` every 2h RTH via `.github/workflows/vol-snapshot.yml`. `vol-history.js` lists recent snapshots. VolSurfacePanel "View history" toggle + scrubber re-renders the same chart from a chosen snapshot. ⚠️ DST: bump vol-snapshot crons +1h UTC after Nov 1 2026.
 
 ### `api/vol.js` (vol complex — shared by Granville volatility signal + macro panel)
 - Real CBOE indices via Tradier quotes: VIX1D, VIX9D, VIX, VIX3M
@@ -105,9 +112,6 @@ Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX
 - Edge middleware at repo root; enforces ONLY when `DASHBOARD_PASSWORD` env is set (private project). Public project unaffected.
 - Cookie `dashboard_auth` = SHA-256(password), 30 days. Login page: `/login` (LoginGate.jsx in the SPA).
 - Excluded paths: /login, /api/login, /api/snapshot, /api/ingest-alma (own secrets), /assets, favicon.
-
-### Synthesis cache
-- Persistent in Supabase `synthesis_cache` (single row id=1), 2h TTL + input-hash invalidation. Survives cold starts; ~4-6 1min.ai calls/day.
 
 ### Gmail Apps Script ("Alma Email Ingester")
 - `checkForNewAlmaPosts` polls every 15 min (time-driven trigger — verify it exists in Triggers panel!)
