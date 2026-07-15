@@ -88,7 +88,8 @@ Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX
 - **ATM IV interpolated** between the two strikes bracketing spot (distance-weighted) — not nearest-strike snapping (which jumped when spot crossed a strike).
 - Uses ORATS `mid_iv` (not last-trade). Per-expiry flags: `wideSpread` (ask_iv−bid_iv >3 vol pts), `lowConfidence` (outside RTH, wide spread, or >20% jump vs last snapshot). Rendered as dashed grey dots + tooltip reasons.
 - Forward IV `FIV=√((IV₂²T₂−IV₁²T₁)/(T₂−T₁))`, kink >15% above neighbor interpolation, confirmed = spot IV ≥ 90% forward. `s-maxage=120`.
-- **History slider**: `snapshot-vol.js` (Bearer SNAPSHOT_SECRET) writes `vol_surface_snapshots` every 2h RTH via `.github/workflows/vol-snapshot.yml`. `vol-history.js` lists recent snapshots. VolSurfacePanel "View history" toggle + scrubber re-renders the same chart from a chosen snapshot. ⚠️ DST: bump vol-snapshot crons +1h UTC after Nov 1 2026.
+- **History = OVERLAY, not replace**: `snapshot-vol.js` (Bearer SNAPSHOT_SECRET) writes `vol_surface_snapshots` every 2h RTH via `.github/workflows/vol-snapshot.yml`; `vol-history.js` lists recent snapshots. VolSurfacePanel "Compare snapshot" toggle keeps the LIVE curve and draws a chosen past snapshot's spot IV as a ghosted dashed line (merged by expiration; rolled-off expiries show on one series only; tooltip shows Δ). Slider appears only with ≥2 snapshots. ⚠️ DST: bump vol-snapshot crons +1h UTC after Nov 1 2026.
+  - GOTCHA: snapshots seeded while market is closed are byte-identical (Tradier returns the last session), so scrubbing shows no change — distinct history needs the cron running during live RTH.
 
 ### `api/vol.js` (vol complex — shared by Granville volatility signal + macro panel)
 - Real CBOE indices via Tradier quotes: VIX1D, VIX9D, VIX, VIX3M
