@@ -36,9 +36,17 @@ function VolTooltip({ active, payload, label }) {
   return (
     <div className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs shadow-xl max-w-xs">
       <p className="font-semibold text-slate-200 mb-1">{label}{p.root ? ` · ${p.root}` : ''}</p>
-      <p style={{ color: C.spot }}>Spot IV: {(p.spotIV * 100).toFixed(2)}%</p>
+      {p.spotIV != null && (
+        <p style={{ color: C.spot }}>Spot IV: {(p.spotIV * 100).toFixed(2)}%</p>
+      )}
       {p.forwardIV != null && (
         <p style={{ color: C.forward }}>Forward IV: {(p.forwardIV * 100).toFixed(2)}%</p>
+      )}
+      {p.histSpotIV != null && (
+        <p style={{ color: C.lowConf }}>
+          Spot IV (snapshot): {(p.histSpotIV * 100).toFixed(2)}%
+          {p.spotIV != null && ` · Δ ${((p.spotIV - p.histSpotIV) * 100 >= 0 ? '+' : '')}${((p.spotIV - p.histSpotIV) * 100).toFixed(2)} pts`}
+        </p>
       )}
       {p.events?.length > 0 && (
         <p className="text-slate-400 mt-1">Events: {p.events.join(', ')}</p>
@@ -109,9 +117,23 @@ export default function VolSurfacePanel({ data, loading, error }) {
   if (!data?.points?.length) return null
 
   const viewingHistory = historyMode && ordered.length > 0
-  const selected = viewingHistory ? ordered[selIdx] : null
-  const surface = viewingHistory ? selected : data
-  const points = toRows(surface)
+  const selected = viewingHistory ? ordered[Math.min(selIdx, ordered.length - 1)] : null
+
+  // Base curve is always LIVE. In history mode we OVERLAY the selected past
+  // snapshot's spot IV as a ghost line, merged by expiration so both render on
+  // the same axis (expiries that rolled off show only on one series).
+  const liveRows = toRows(data)
+  let points = liveRows
+  if (viewingHistory && selected) {
+    const byExp = new Map()
+    for (const r of liveRows) byExp.set(r.expiration, { ...r })
+    for (const h of toRows(selected)) {
+      const cur = byExp.get(h.expiration) ?? { expiration: h.expiration, tick: h.tick, events: h.events }
+      cur.histSpotIV = h.spotIV
+      byExp.set(h.expiration, cur)
+    }
+    points = [...byExp.values()].sort((a, b) => (a.expiration < b.expiration ? -1 : 1))
+  }
   const kinks = points.filter(p => p.kink)
   const lowConf = points.filter(p => p.lowConfidence)
 
@@ -119,7 +141,7 @@ export default function VolSurfacePanel({ data, loading, error }) {
     <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
       <div className="flex items-baseline justify-between flex-wrap gap-2 mb-1">
         <p className="text-xs text-slate-500">
-          SPX ATM implied vol term structure · spot {surface.spot?.toFixed(2)} · Tradier/ORATS · SPXW
+          SPX ATM implied vol term structure · spot {data.spot?.toFixed(2)} · Tradier/ORATS · SPXW
         </p>
         <button
           onClick={() => setHistoryMode(v => !v)}
@@ -129,7 +151,7 @@ export default function VolSurfacePanel({ data, loading, error }) {
               : 'text-slate-500 bg-slate-900/40 border-slate-800 hover:text-slate-300'
           }`}
         >
-          {historyMode ? '● Viewing history' : 'View history'}
+          {historyMode ? '● Comparing snapshot' : 'Compare snapshot'}
         </button>
       </div>
 
@@ -138,19 +160,23 @@ export default function VolSurfacePanel({ data, loading, error }) {
           {histError ? (
             <p className="text-[11px] text-red-400">History unavailable — {histError}</p>
           ) : ordered.length === 0 ? (
-            <p className="text-[11px] text-slate-600">No snapshots stored yet — the 2-hourly cron will populate this.</p>
+            <p className="text-[11px] text-slate-600">No snapshots stored yet — the 2-hourly cron populates this during market hours.</p>
           ) : (
             <div className="flex items-center gap-3">
-              <input
-                type="range"
-                min={0}
-                max={ordered.length - 1}
-                value={selIdx}
-                onChange={e => setSelIdx(parseInt(e.target.value, 10))}
-                className="flex-1 accent-indigo-500"
-              />
-              <span className="text-[11px] text-slate-400 font-mono whitespace-nowrap">
-                {fmtTime(selected.captured_at)}
+              {ordered.length > 1 ? (
+                <input
+                  type="range"
+                  min={0}
+                  max={ordered.length - 1}
+                  value={Math.min(selIdx, ordered.length - 1)}
+                  onChange={e => setSelIdx(parseInt(e.target.value, 10))}
+                  className="flex-1 accent-indigo-500"
+                />
+              ) : (
+                <span className="flex-1 text-[11px] text-slate-600">Only one snapshot stored so far — more accumulate every 2h.</span>
+              )}
+              <span className="text-[11px] whitespace-nowrap" style={{ color: C.lowConf }}>
+                overlaying <span className="font-mono text-slate-400">{fmtTime(selected.captured_at)}</span>
               </span>
             </div>
           )}
@@ -214,6 +240,19 @@ export default function VolSurfacePanel({ data, loading, error }) {
               connectNulls
               isAnimationActive={false}
             />
+            {viewingHistory && (
+              <Line
+                name={`Spot IV @ ${fmtTime(selected.captured_at)}`}
+                dataKey="histSpotIV"
+                stroke={C.lowConf}
+                strokeWidth={1.5}
+                strokeDasharray="2 2"
+                dot={{ r: 2, fill: C.lowConf }}
+                activeDot={{ r: 4 }}
+                connectNulls
+                isAnimationActive={false}
+              />
+            )}
           </LineChart>
         </ResponsiveContainer>
       </div>
