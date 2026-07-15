@@ -48,7 +48,33 @@ function buildPrompt(granvilleData, macroData) {
   const volLines = (volAndRisk ?? []).filter(s => !s.error).map(s => `  - ${s.label}: ${s.state} (${s.formatted})`).join('\n')
   const ratesLines = (ratesAndCredit ?? []).filter(s => !s.error).map(s => `  - ${s.label}: ${s.state} at ${s.formatted}`).join('\n')
   const divergenceNote = divergenceWarning ? 'ACTIVE DIVERGENCE WARNING: SPY is rising but RSP/SPY breadth ratio is falling — composite capped at 60.' : 'No breadth divergence warning active.'
-  return `You are a pre-market market intelligence assistant for a sophisticated trader using Granville's 1960 timing system. Write ONE paragraph (4-6 sentences) synthesizing these signals into a plain-English morning read. Be specific about numbers. Do not use bullet points. Lead with the Granville composite reading and treat it as the primary verdict. Then contextualize with macro. End with a one-sentence directional lean for the session.\n\nGRANVILLE COMPOSITE: ${compositeScore}/100\n${divergenceNote}\n\nGRANVILLE SIGNALS:\n${signalLines}\n\nMACRO CONDITIONS:\nVol & Risk:\n${volLines || '  (unavailable)'}\n\nRates & Credit:\n${ratesLines || '  (unavailable)'}\n\nWrite the synthesis paragraph now:`
+  return `You are a pre-market market intelligence assistant for a sophisticated trader using Granville's 1960 timing system. Synthesize these signals into a morning read written in the MINTO PYRAMID style: lead with the single governing conclusion, then the grouped supporting reasons, then the action.
+
+Output EXACTLY this structure and nothing else — no preamble, no markdown headers, no asterisks:
+
+Bottom line: <one crisp sentence giving the verdict — lead with the Granville composite reading as the primary answer>
+Why:
+- <supporting reason 1, specific with numbers>
+- <supporting reason 2, specific with numbers>
+- <supporting reason 3, specific with numbers — optional>
+Session lean: <one sentence with the directional lean for the session>
+
+Rules: 2 to 3 "Why" bullets, each a single line, each grounded in a specific number from the data. Group related signals rather than listing every one. If the divergence warning is active, it must appear as one of the reasons. Be concise — a trader scans this in five seconds.
+
+GRANVILLE COMPOSITE: ${compositeScore}/100
+${divergenceNote}
+
+GRANVILLE SIGNALS:
+${signalLines}
+
+MACRO CONDITIONS:
+Vol & Risk:
+${volLines || '  (unavailable)'}
+
+Rates & Credit:
+${ratesLines || '  (unavailable)'}
+
+Write the synthesis now:`
 }
 
 export default async function handler(req, res) {
