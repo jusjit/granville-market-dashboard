@@ -336,7 +336,7 @@ Flag ONLY if probability > 30% AND the market hasn't fully priced it yet — cro
 
 Additionally, evaluate EVERY signal category in the data (chokepoints, conflict/UCDP by country, cross-source convergence signals, CII per country, supply chain stress, credit, FX/carry, vol) and report your reasoning per category — including the ones you did NOT flag — so every run is a labeled data point.
 
-Output strict JSON: {flagged: boolean, risk_category: string, confidence: 0-100, transmission_chain: string, relevant_signals: string[], granville_modifier: {position_size_cap: number, alma_reversion_confidence: number}, categories_considered: string[], categories_dismissed_reason: {<category>: "one-line reason not flagged"}}`
+Output strict JSON: {flagged: boolean, risk_category: string, confidence: INTEGER 0-100 (NOT a 0-1 probability — e.g. 65, not 0.65), transmission_chain: string, relevant_signals: string[], granville_modifier: {position_size_cap: number between 0 and 1, alma_reversion_confidence: INTEGER 0-100 (NOT a 0-1 probability — e.g. 28, not 0.28)}, categories_considered: string[], categories_dismissed_reason: {<category>: "one-line reason not flagged"}}`
 
 // NOTE on 1min.ai prompt caching (checked 2026-07-12): the chat-with-ai
 // promptObject schema (see settings: withMemories/historySettings/
@@ -416,15 +416,37 @@ ${errors.length ? `\nFailed sources this run: ${errors.join('; ')}` : ''}
 Respond with the strict JSON object only — no markdown fences, no commentary.`
 }
 
+// Model swap 2026-07-16: real usage showed ~136K raw tokens/day (diff-gate
+// working as intended) but ~1.8M 1min.ai "credit"/day on claude-sonnet-4-6 —
+// credit is 1min.ai's billing unit, NOT tokens (~14x tokens for Sonnet on
+// this workload). No Claude Haiku is available via 1min.ai (tried several
+// model-id variants, all UNSUPPORTED_MODEL). Compared real candidates on the
+// ACTUAL aggregator prompt (not a toy test):
+//   - gpt-4o-mini: ~29x cheaper credit, but noticeably shallower analysis
+//     (generic transmission_chain with no cited figures, only ~7 broad
+//     categories vs Sonnet's per-country granularity, a miscalibrated-looking
+//     position_size_cap) — rejected, guts the "every run is a labeled data
+//     point" value of categories_dismissed_reason.
+//   - gemini-2.5-flash: ~8x cheaper credit, comparable analytical depth to
+//     Sonnet (cites real figures, similar cross-referencing), chosen as the
+//     new primary model. Caught it returning granville_modifier
+//     .alma_reversion_confidence on a 0-1 scale instead of 0-100 — fixed via
+//     explicit prompt wording (see SYSTEM_PROMPT), not code-side normalization,
+//     so the LLM's own stated confidence stays self-consistent with its output.
+//   - Latency: ~58s for gemini-2.5-flash vs Sonnet's own ~40s already running
+//     successfully in production — not a new class of risk, but real; see
+//     vercel.json maxDuration.
+const MODEL = 'gemini-2.5-flash'
+
 // Same 1min.ai call shape as api/synthesis.js — promptObject format, NOT a
 // messages array (messages format is rejected with PROMPT_OBJECT_VALIDATION_FAILED).
 // Returns both the parsed verdict and the real token/credit usage from
 // aiRecord.metadata so every run can log actual cost, not an estimate.
-async function callOneMin(prompt, key) {
+async function callOneMin(prompt, key, model = MODEL) {
   const r = await fetch('https://api.1min.ai/api/chat-with-ai', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'API-KEY': key },
-    body: JSON.stringify({ type: 'CHAT', model: 'claude-sonnet-4-6', promptObject: { prompt, isMixed: false } }),
+    body: JSON.stringify({ type: 'CHAT', model, promptObject: { prompt, isMixed: false } }),
   })
   if (!r.ok) throw new Error(`1min.ai ${r.status}: ${(await r.text()).slice(0, 200)}`)
   const data = await r.json()
@@ -434,6 +456,7 @@ async function callOneMin(prompt, key) {
   if (!match) throw new Error(`LLM did not return JSON: ${String(text).slice(0, 200)}`)
   const m = data?.aiRecord?.metadata ?? {}
   const tokenUsage = {
+    model,
     inputToken: m.inputToken ?? null,
     outputToken: m.outputToken ?? null,
     totalToken: m.totalToken ?? null,
@@ -490,7 +513,7 @@ async function upsertSignal(verdict) {
     severity: Math.max(0, Math.min(100, Math.round(Number(verdict.confidence) || 0))),
     implication: implicationFor(String(verdict.risk_category)),
     granville_modifier: verdict.granville_modifier ?? {},
-    source: 'aggregate-geo-regime (worldmonitor public API + FRED, via 1min.ai claude-sonnet-4-6)',
+    source: `aggregate-geo-regime (worldmonitor public API + FRED, via 1min.ai ${MODEL})`,
     notes: `${verdict.transmission_chain}\nSignals: ${(verdict.relevant_signals ?? []).join('; ')}`,
     last_update: new Date().toISOString(),
   }
