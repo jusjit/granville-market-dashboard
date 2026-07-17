@@ -63,9 +63,10 @@ Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX
 
 ### `api/synthesis.js`
 - POST `/api/synthesis` with body `{ granvilleData, macroData }`
-- Calls **1min.ai** to generate the AI synthesis via Claude
-- **Model**: `claude-sonnet-4-6`
-- **Format**: `{ type: "CHAT", model: "claude-sonnet-4-6", promptObject: { prompt, isMixed: false } }`
+- Calls **1min.ai** to generate the AI synthesis
+- **Model**: `gemini-2.5-flash` (swapped from `claude-sonnet-4-6` 2026-07-17). Measured on THIS prompt: 929 credit vs Sonnet's 17,721 (**~19x cheaper**), same 11-13s latency, Minto structure held. Mirrors the aggregator's swap — see `api/aggregate-geo-regime.js` for the full model comparison (gpt-4o-mini rejected there for shallow output; no Claude Haiku on 1min.ai).
+- Retry-once + 3s backoff, 30s per-attempt `AbortSignal.timeout` (gemini's longer calls widen the window for transient 1min.ai gateway 500s). `vercel.json` sets `api/synthesis.js` maxDuration 75 so the retry can actually finish.
+- **Format**: `{ type: "CHAT", model: MODEL, promptObject: { prompt, isMixed: false } }`
 - **Endpoint**: `https://api.1min.ai/api/chat-with-ai` with header `API-KEY: <key>`
 - Response path: `data.aiRecord.aiRecordDetail.resultObject[0]`
 - **Minto pyramid output**: prompt requires `Bottom line: …` / `Why:` bullets / `Session lean: …`. SynthesisPanel.jsx parses these into bold lead + bullet list + footer; falls back to plain paragraph if unstructured. Divergence warning forced in as a driver when active.

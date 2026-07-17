@@ -59,7 +59,7 @@ Why:
 - <supporting reason 3, specific with numbers — optional>
 Session lean: <one sentence with the directional lean for the session>
 
-Rules: 2 to 3 "Why" bullets, each a single line, each grounded in a specific number from the data. Group related signals rather than listing every one. If the divergence warning is active, it must appear as one of the reasons. Be concise — a trader scans this in five seconds.
+Rules: 2 to 3 "Why" bullets, each a single line, each grounded in a specific number from the data. Group related signals rather than listing every one. If the divergence warning is active, it must appear as one of the reasons. Do not restate the label inside its own sentence (write "Session lean: Cautiously bearish — ..." NOT "Session lean: The session lean is cautiously bearish"). Be concise — a trader scans this in five seconds.
 
 GRANVILLE COMPOSITE: ${compositeScore}/100
 ${divergenceNote}
@@ -75,6 +75,51 @@ Rates & Credit:
 ${ratesLines || '  (unavailable)'}
 
 Write the synthesis now:`
+}
+
+// Model swap 2026-07-17: matched the aggregator's swap (see
+// api/aggregate-geo-regime.js for the full comparison writeup). claude-sonnet-4-6
+// cost ~180-250K 1min.ai credit per call; gemini-2.5-flash measured ~18.5K on the
+// real aggregator prompt (~10-13x cheaper) with comparable analytical depth —
+// unlike gpt-4o-mini, which was rejected there for shallow output. This prompt is
+// far smaller than the aggregator's, so quality risk is lower still, but the
+// Minto structure is load-bearing for SynthesisPanel's parser — verified after
+// the swap that gemini still emits Bottom line: / Why: / - / Session lean:.
+const MODEL = 'gemini-2.5-flash'
+
+function sleep(ms) { return new Promise(res => setTimeout(res, ms)) }
+
+// Single attempt, capped so a hang can't eat the retry budget. Throws on any
+// failure so the caller decides whether to retry.
+async function callOneMinOnce(prompt, key) {
+  const r = await fetch('https://api.1min.ai/api/chat-with-ai', {
+    method: 'POST',
+    signal: AbortSignal.timeout(30000), // ~3x headroom over the 11s observed for this prompt
+    headers: { 'Content-Type': 'application/json', 'API-KEY': key },
+    body: JSON.stringify({ type: 'CHAT', model: MODEL, promptObject: { prompt, isMixed: false } }),
+  })
+  if (!r.ok) throw new Error(`1min.ai ${r.status}: ${(await r.text()).slice(0, 200)}`)
+  const data = await r.json()
+  const text = data?.aiRecord?.aiRecordDetail?.resultObject?.[0]
+  if (!text) throw new Error(`Unexpected response shape: ${JSON.stringify(data).slice(0, 200)}`)
+  return { text: String(text).trim(), credit: data?.aiRecord?.metadata?.credit ?? null }
+}
+
+// One retry after a short backoff — same rationale as the aggregator: gemini's
+// longer call duration widens the window for a transient 1min.ai gateway 500,
+// and here a failure means the panel shows "Synthesis unavailable" until the
+// next refresh, so absorbing it in-invocation is worth ~3s.
+async function callOneMin(prompt, key) {
+  try {
+    return await callOneMinOnce(prompt, key)
+  } catch (firstErr) {
+    await sleep(3000)
+    try {
+      return await callOneMinOnce(prompt, key)
+    } catch (secondErr) {
+      throw new Error(`1min.ai failed twice — first: ${firstErr.message} | retry: ${secondErr.message}`)
+    }
+  }
 }
 
 export default async function handler(req, res) {
@@ -96,16 +141,7 @@ export default async function handler(req, res) {
   }
   const prompt = buildPrompt(granvilleData, macroData)
   try {
-    const r = await fetch('https://api.1min.ai/api/chat-with-ai', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'API-KEY': key },
-      body: JSON.stringify({ type: 'CHAT', model: 'claude-sonnet-4-6', promptObject: { prompt, isMixed: false } }),
-    })
-    if (!r.ok) { const text = await r.text(); return res.status(502).json({ error: `1min.ai ${r.status}: ${text.slice(0, 200)}` }) }
-    const data = await r.json()
-    const paragraph = data?.aiRecord?.aiRecordDetail?.resultObject?.[0]
-    if (!paragraph) return res.status(502).json({ error: `Unexpected response shape: ${JSON.stringify(data).slice(0, 200)}` })
-    const trimmed = paragraph.trim()
+    const { text: trimmed } = await callOneMin(prompt, key)
     await cacheWrite(trimmed, currentHash)
     return res.status(200).json({ paragraph: trimmed, cached: false })
   } catch (err) {

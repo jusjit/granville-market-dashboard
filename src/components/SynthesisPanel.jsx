@@ -42,7 +42,7 @@ export default function SynthesisPanel({ text, loading, error }) {
     <section className="rounded-xl border border-indigo-900/50 bg-indigo-950/20 p-5">
       <div className="flex items-center gap-2 mb-3">
         <span className="text-[10px] font-semibold text-indigo-400 uppercase tracking-widest">AI Synthesis</span>
-        <span className="text-[10px] text-slate-600">· claude-sonnet-4-6 via 1min.ai · updates on refresh</span>
+        <span className="text-[10px] text-slate-600">· gemini-2.5-flash via 1min.ai · updates on refresh</span>
       </div>
 
       {loading && (
