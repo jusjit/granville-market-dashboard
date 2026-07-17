@@ -1,10 +1,17 @@
 import { useState } from 'react'
 
+// Reliability = does the stat replicate. Deliberately NOT green — a VALIDATED
+// tier says nothing about whether the rule is tradeable (v1 conflated the two;
+// e.g. weekly_pivot_touch is 86.5% and rock-stable, yet information-free).
 const TIER_COLORS = {
-  VALIDATED: 'text-green-400 bg-green-950/30 border-green-900/40',
-  EMERGING: 'text-amber-400 bg-amber-950/30 border-amber-900/40',
-  EXPLORATORY: 'text-slate-400 bg-slate-800/40 border-slate-700/40',
+  VALIDATED: 'text-slate-300 bg-slate-800/60 border-slate-700/50',
+  EMERGING: 'text-slate-400 bg-slate-800/40 border-slate-700/40',
+  EXPLORATORY: 'text-slate-500 bg-slate-800/30 border-slate-700/30',
 }
+
+// Green is reserved for the one thing that earns it: a passed placebo.
+const SIGNAL_BADGE = 'text-green-400 bg-green-950/30 border-green-900/40'
+const CONTEXT_BADGE = 'text-slate-500 bg-slate-900/40 border-slate-800'
 
 const SIGMA_SYMBOLS = ['SPX', 'ES', 'SPY', 'VIX', 'IWM', 'QQQ']
 
@@ -179,34 +186,72 @@ export default function AlmaPanel({ data, loading, error }) {
         </div>
       )}
 
-      {/* ── Active rules ──────────────────────────────────── */}
+      {/* ── Active rules — ordered strongest evidence first (rank) ────── */}
       {data.activeRules?.length > 0 && (
         <div>
-          <p className="text-[10px] text-slate-600 uppercase tracking-widest mb-2">
-            Active Rules ({data.activeRules.length})
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {data.activeRules.map(rule => (
-              <div key={rule.rule_id} className="rounded-lg border border-slate-800 bg-slate-900/50 p-3 flex flex-col gap-2">
-                <div className="flex items-start justify-between gap-2">
-                  <p className="text-xs text-slate-300 leading-snug">{rule.statement}</p>
-                  <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold border ${TIER_COLORS[rule.confidence_tier] ?? TIER_COLORS.EXPLORATORY}`}>
-                    {rule.confidence_tier}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2 mt-auto">
-                  {rule.historical_rate != null && (
-                    <span className="font-mono text-[11px] text-slate-400">
-                      {(rule.historical_rate * 100).toFixed(0)}% historical
+          <div className="flex items-baseline gap-3 mb-2 flex-wrap">
+            <p className="text-[10px] text-slate-600 uppercase tracking-widest">
+              Active Rules ({data.activeRules.length})
+            </p>
+            <p className="text-[10px] text-slate-600">
+              Strongest evidence first · <span className="text-green-500">Signal</span> = placement carries
+              information; Context = reliable stat explained by proximity, not an edge
+            </p>
+          </div>
+          <div className="space-y-3">
+            {data.activeRules.map(rule => {
+              const signal = rule.actionable_as_signal
+              const s = rule.stats ?? {}
+              return (
+                <div
+                  key={rule.id}
+                  className={`rounded-lg border p-3 flex flex-col gap-2 ${
+                    signal
+                      ? 'border-green-900/40 bg-green-950/10'
+                      : 'border-slate-800 bg-slate-900/50'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono text-[10px] text-slate-600">#{rule.rank}</span>
+                        <p className="text-xs font-semibold text-slate-200">{rule.name}</p>
+                        <span className="text-[10px] text-slate-600 uppercase">{rule.horizon}</span>
+                      </div>
+                      <p className="text-xs text-slate-400 leading-snug mt-1">{rule.finding}</p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border ${signal ? SIGNAL_BADGE : CONTEXT_BADGE}`}>
+                        {signal ? 'Signal' : 'Context'}
+                      </span>
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border ${TIER_COLORS[rule.reliability_tier] ?? TIER_COLORS.EXPLORATORY}`}>
+                        {rule.reliability_tier}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 flex-wrap">
+                    {s.estimate != null && (
+                      <span className="font-mono text-[11px] text-slate-400">
+                        {s.estimate}%{s.n != null ? ` · n=${s.n}` : ''}
+                      </span>
+                    )}
+                    <span className="text-[10px] text-slate-600">
+                      placebo {rule.placebo_status?.toLowerCase()}
                     </span>
+                    {!signal && s.naive_benchmark && (
+                      <span className="text-[10px] text-slate-600 truncate" title={s.naive_benchmark}>
+                        vs naive: {s.naive_benchmark}
+                      </span>
+                    )}
+                  </div>
+
+                  {rule.interpretation && (
+                    <p className="text-[11px] text-slate-500 leading-relaxed">{rule.interpretation}</p>
                   )}
-                  <span className="text-[10px] text-slate-600 uppercase">{rule.scope}</span>
                 </div>
-                {rule.action_guidance && (
-                  <p className="text-[11px] text-slate-500 leading-relaxed">{rule.action_guidance}</p>
-                )}
-              </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       )}

@@ -1,7 +1,15 @@
 import { createClient } from '@supabase/supabase-js'
 
-// Evaluate each rule against current data with explicit logic per rule_id.
-// Returns null if the rule's condition can't be evaluated pre-market (e.g. needs session outcome).
+// Rules v2 (see "Alma backtest rules/alma_rules.json"). Two independent axes:
+//   reliability_tier  — does the stat replicate out-of-sample
+//   placebo_status    — does the level's PLACEMENT carry information
+// A rule is predictive signal ONLY if placebo_status === 'PASSED' (exactly one
+// does: dont_fade_rule). Everything else is descriptive context — the numbers
+// are real but explained by proximity/geometry, not by Alma's placement.
+// The DB enforces actionable_as_signal === (placebo_status === 'PASSED').
+//
+// Returns null when a rule's condition can't be evaluated from pre-market data
+// (e.g. it needs a session outcome), so it's simply omitted rather than guessed.
 function evaluateRule(rule, ctx) {
   const { intraday, weekly, market } = ctx
   const spxOpen = market?.spx_open ?? null
@@ -9,69 +17,58 @@ function evaluateRule(rule, ctx) {
   const upPivot = intraday?.upside_pivot ?? null
   const downPivot = intraday?.downside_pivot ?? null
   const vixGap = market?.vix_gap_pct ?? null
+  const vixOpen = market?.vix_open ?? null
   const gapFromCentroidPct = (spxOpen != null && centroid != null && centroid !== 0)
     ? ((spxOpen - centroid) / centroid) * 100
     : null
+  const openInsidePivots = (spxOpen != null && upPivot != null && downPivot != null)
+    ? spxOpen < upPivot && spxOpen > downPivot
+    : null
 
-  switch (rule.rule_id) {
-    case 'intraday_centroid_near_open':
-      if (spxOpen == null || centroid == null) return null
-      return Math.abs(spxOpen - centroid) / centroid <= 0.003
-
-    case 'intraday_dont_fade_vol_crush':
+  switch (rule.id) {
+    // ── rank 1 — the only actionable rule ────────────────────────────────
+    case 'dont_fade_rule':
       if (gapFromCentroidPct == null || vixGap == null) return null
       return gapFromCentroidPct > 0.3 && vixGap < 0
 
-    case 'intraday_gap_up_vix_up':
-      if (gapFromCentroidPct == null || vixGap == null) return null
-      return gapFromCentroidPct > 0.3 && vixGap >= 0
-
-    case 'intraday_pivot_inside_range':
-      if (spxOpen == null || upPivot == null || downPivot == null) return null
-      return downPivot <= spxOpen && spxOpen <= upPivot
-
-    case 'intraday_directional_above_centroid':
-      if (spxOpen == null || upPivot == null || downPivot == null || centroid == null) return null
-      return downPivot <= spxOpen && spxOpen <= upPivot && spxOpen > centroid
-
-    case 'intraday_directional_below_centroid':
-      if (spxOpen == null || upPivot == null || downPivot == null || centroid == null) return null
-      return downPivot <= spxOpen && spxOpen <= upPivot && spxOpen < centroid
-
-    case 'intraday_pattern_long_fly':
-      return intraday?.pattern_type === 'long_fly'
-
-    case 'intraday_pattern_ic':
-      return intraday?.pattern_type === 'IC'
-
-    case 'intraday_sigma_band_not_containment':
-      // Informational: active whenever sigma data is present for today
+    // ── unconditional descriptive stats: "active" whenever the level exists
+    case 'sigma_bands_are_not_containment':
       return intraday?.SPX_s1_upper != null && intraday?.SPX_s1_lower != null
 
-    case 'intraday_miss_asymmetry':
-      // Outcome-conditional (centroid_touched = false) — not evaluable pre-market
-      return null
+    case 'intraday_centroid_touch':
+      return centroid != null
 
-    case 'weekly_pivot_inside_range':
-      if (spxOpen == null || weekly?.weekly_upside_pivot == null || weekly?.weekly_downside_pivot == null) return null
-      return weekly.weekly_downside_pivot <= spxOpen && spxOpen <= weekly.weekly_upside_pivot
-
-    case 'weekly_range_directional_not_containment':
-      // Informational: active whenever the weekly vol range is present
-      return weekly?.SPX_weekly_upper != null && weekly?.SPX_weekly_lower != null
+    case 'weekly_pivot_touch':
+      return weekly?.weekly_upside_pivot != null && weekly?.weekly_downside_pivot != null
 
     case 'weekly_centroid_touch':
       return weekly?.weekly_centroid != null
 
-    case 'weekly_reversion_signals_large_move_not_direction':
+    case 'risk_level_construct':
+      return intraday?.SPX_risk_upper != null && intraday?.SPX_risk_lower != null
+
+    // ── conditional descriptive stats ────────────────────────────────────
+    case 'intraday_pivot_touch':
+      return openInsidePivots
+
+    case 'directional_tell':
+      if (openInsidePivots == null || centroid == null || spxOpen == null) return null
+      return openInsidePivots && spxOpen !== centroid
+
+    case 'pattern_type_conditioning':
+      return ['IC', 'long_fly', 'short_fly', 'risk_reversal'].includes(intraday?.pattern_type)
+
+    case 'vix_regime_breach_skew':
+      return vixOpen != null
+
+    case 'weekly_reversion_model':
       if (weekly?.reversion_prob == null) return null
       return weekly.reversion_prob >= 97
 
-    case 'weekly_fly_pattern_inconclusive':
-      return weekly?.fly_pattern === 'long_fly' || weekly?.fly_pattern === 'short_fly'
-
-    case 'weekly_sentiment_regime_inconclusive':
-      return weekly?.sentiment_regime != null
+    // ── outcome-conditional: needs the session to have played out ────────
+    case 'targets_are_soft_walls':
+      // condition is `pivot_broken == true` — unknowable pre-market
+      return null
 
     default:
       return null
@@ -89,7 +86,7 @@ export default async function handler(req, res) {
     const [intradayQ, weeklyQ, rulesQ] = await Promise.all([
       supabase.from('intraday_posts').select('*').order('date', { ascending: false }).limit(1),
       supabase.from('weekly_posts').select('*').order('date', { ascending: false }).limit(1),
-      supabase.from('rules').select('*'),
+      supabase.from('rules').select('*').order('rank', { ascending: true }),
     ])
     for (const q of [intradayQ, weeklyQ, rulesQ]) {
       if (q.error) throw new Error(q.error.message)
@@ -98,21 +95,25 @@ export default async function handler(req, res) {
     const weekly = weeklyQ.data[0] ?? null
     const rules = rulesQ.data ?? []
 
-    // Today's market_data row (falls back to most recent)
     const marketQ = await supabase.from('market_data').select('*').order('date', { ascending: false }).limit(1)
     if (marketQ.error) throw new Error(marketQ.error.message)
     const market = marketQ.data[0] ?? null
 
     const ctx = { intraday, weekly, market }
+    // Already ordered by rank (strongest evidence first) from the query.
     const activeRules = rules
       .filter(r => evaluateRule(r, ctx) === true)
       .map(r => ({
-        rule_id: r.rule_id,
-        scope: r.scope,
-        statement: r.statement,
-        historical_rate: r.historical_rate,
-        confidence_tier: r.confidence_tier,
-        action_guidance: r.action_guidance,
+        id: r.id,
+        name: r.name,
+        horizon: r.horizon,
+        rank: r.rank,
+        reliability_tier: r.reliability_tier,
+        placebo_status: r.placebo_status,
+        actionable_as_signal: r.actionable_as_signal,
+        finding: r.finding,
+        interpretation: r.interpretation,
+        stats: r.stats,
       }))
 
     res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=60')
