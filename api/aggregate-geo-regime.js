@@ -438,13 +438,15 @@ Respond with the strict JSON object only — no markdown fences, no commentary.`
 //     vercel.json maxDuration.
 const MODEL = 'gemini-2.5-flash'
 
-// Same 1min.ai call shape as api/synthesis.js — promptObject format, NOT a
-// messages array (messages format is rejected with PROMPT_OBJECT_VALIDATION_FAILED).
-// Returns both the parsed verdict and the real token/credit usage from
-// aiRecord.metadata so every run can log actual cost, not an estimate.
-async function callOneMin(prompt, key, model = MODEL) {
+function sleep(ms) { return new Promise(res => setTimeout(res, ms)) }
+
+// Single attempt — no retry logic here, kept separate so callOneMin's retry
+// wrapper stays simple. Throws on any failure (non-2xx, missing text,
+// unparseable JSON) so the caller can decide whether to retry.
+async function callOneMinOnce(prompt, key, model) {
   const r = await fetch('https://api.1min.ai/api/chat-with-ai', {
     method: 'POST',
+    signal: AbortSignal.timeout(60000), // caps a single attempt so a hang can't eat the whole retry budget
     headers: { 'Content-Type': 'application/json', 'API-KEY': key },
     body: JSON.stringify({ type: 'CHAT', model, promptObject: { prompt, isMixed: false } }),
   })
@@ -463,6 +465,34 @@ async function callOneMin(prompt, key, model = MODEL) {
     credit: m.credit ?? null,
   }
   return { verdict: JSON.parse(match[0]), tokenUsage }
+}
+
+// Same 1min.ai call shape as api/synthesis.js — promptObject format, NOT a
+// messages array (messages format is rejected with PROMPT_OBJECT_VALIDATION_FAILED).
+// Returns both the parsed verdict and the real token/credit usage from
+// aiRecord.metadata so every run can log actual cost, not an estimate.
+//
+// One retry after a short backoff (added 2026-07-17): two production cron
+// runs failed with a 500 originating from this call, both times self-healing
+// on the next scheduled run hours later. gemini-2.5-flash's longer call
+// duration (46-58s observed, vs Sonnet's steadier ~40s) widens the exposure
+// window for a transient 1min.ai/Gemini gateway hiccup — a single retry
+// absorbs that within the same invocation instead of waiting hours and
+// firing a failure email in between. Each attempt is capped at 60s (see
+// AbortSignal.timeout in callOneMinOnce) so a hang can't silently eat the
+// whole budget; worst case is ~60s + 3s backoff + ~60s + gatherSignals()'s
+// own time, which is why vercel.json's maxDuration was raised to 150.
+async function callOneMin(prompt, key, model = MODEL) {
+  try {
+    return await callOneMinOnce(prompt, key, model)
+  } catch (firstErr) {
+    await sleep(3000)
+    try {
+      return await callOneMinOnce(prompt, key, model)
+    } catch (secondErr) {
+      throw new Error(`1min.ai failed twice — first: ${firstErr.message} | retry: ${secondErr.message}`)
+    }
+  }
 }
 
 function sb() {
