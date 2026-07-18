@@ -79,8 +79,12 @@ Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX
 
 ### `api/alma.js`
 - GET — latest `intraday_posts` + `weekly_posts` + `market_data` rows + all rules from Supabase
-- Evaluates the 12 v2 rules with explicit per-`id` JS (no eval), returns them **ordered by rank** (strongest first); `{ intraday, weekly, market, activeRules }`
-- `s-maxage=300`. Feeds AlmaPanel + AlmaLog (private dashboard only).
+- Evaluates the 12 v2 rules with explicit per-`id` JS (no eval), returns them **ordered by rank** (strongest first); `{ intraday, weekly, market, activeRules, live, touchTimestamps }`
+- **Live layer** (added 2026-07-17): fetches a real-time Tradier SPX/VIX quote each call. When the quote is genuinely from today (NY calendar date match via `trade_date`), its `open`/`high`/`low` supersede the stored `market_data` row for rule evaluation — so rules correctly reflect TODAY's open intraday, instead of waiting for the once-daily close-snapshot cron. `live: { isToday, updatedAt, spx: {...}, vix: {...}, gapFromCentroidPct, vixGapPct }`.
+- **Touch timestamps**: when `live.isToday` and today's Alma post exists, fetches Tradier 15-min timesales bars for today and walks them to find the first bar overlapping each daily level's ±0.1% band → `touchTimestamps: { centroid, upside_pivot, downside_pivot, upside_target, downside_target }` (each an ISO-shaped string or null). Weekly levels never get a timestamp (checked against the whole week's range, not a single session).
+- **GOTCHA — Tradier timesales `time` field is naive America/New_York wall-clock, NOT UTC** (e.g. `"2026-07-17T09:30:00"` = 9:30am ET exactly, no offset marker). Never parse it with `new Date(...)` on a UTC server — that silently mis-shifts it by 4-5h. Pass through as-is; format for display via string slicing (see `fmtEtTime` in `AlmaLog.jsx`).
+- `s-maxage=120` (well under the 15-min client poll so a poll never gets stale-by-design data). Live layer is best-effort — any Tradier failure degrades to the stored EOD `market_data` row, never breaks the response.
+- Feeds AlmaPanel + AlmaLog (private dashboard only).
 
 ### Rules schema v2 (migrated 2026-07-17; source of truth = `Alma backtest rules/alma_rules.json`)
 - **Two independent tiers, do not conflate**: `reliability_tier` (VALIDATED/EMERGING/EXPLORATORY — does the stat replicate) and `placebo_status` (PASSED/FAILED/UNTESTED — does the level's *placement* carry information vs just proximity/geometry).
@@ -90,6 +94,8 @@ Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX
 - **Push rules with `Alma backtest rules/push_rules_v2.py`** (reads keys from `.env`, rules-only). NEVER use `migrate_to_supabase.py` for a rules update — it re-pushes posts from the stale SQLite snapshot and would clobber Gmail-ingested posts.
 - Validate the JSON with `Alma backtest rules/validate_rules.py` (checks schema + the actionable invariant; reads utf-8-sig).
 - AlmaPanel: green reserved for the one Signal rule; VALIDATED badge is grey (a green VALIDATED on an info-free rule was the v1 bug). Each rule shows Signal/Context badge + naive-null inline.
+- **Panel layout (2026-07-17)**: `AlmaLiveCard` (live SPX/VIX reference) → Active Rules → Daily levels card → Weekly levels card, in that order — rules render directly underneath the live data they're evaluated against. `AlmaLiveCard` polls `/api/alma` on its own 15-min `setInterval` in `App.jsx`, independent of the manual Refresh button (cheap: Supabase + a couple Tradier calls, no LLM — unlike the rest of the dashboard which stays manual-only to control 1min.ai/Finnhub cost).
+- `AlmaLog.jsx` prefers `live.spx.high/low` (updates continuously) over the once-daily `market_data` snapshot when `live.isToday`, and shows each daily HIT's exact ET timestamp from `touchTimestamps`; weekly hits show "time unknown (weekly)" rather than a fabricated time.
 - LLM-facing companion: `Alma backtest rules/alma_rules_prompt.md` (leads with the usage gate). No LLM currently consumes the rules; if wired, use gemini-2.5-flash like synthesis.
 
 ### Vol surface (`api/tradier.js` live + `api/snapshot-vol.js` cron + `api/vol-history.js`)
