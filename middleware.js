@@ -10,7 +10,9 @@
 const OPEN_PATHS = [
   /^\/login$/,
   /^\/api\/login$/,
-  /^\/api\/snapshot/,      // Bearer SNAPSHOT_SECRET
+  /^\/api\/snapshot/,      // Bearer SNAPSHOT_SECRET (dashboard + vol snapshots)
+  /^\/api\/vol-history/,   // Bearer SNAPSHOT_SECRET (POST capture) + dashboard GET
+  /^\/api\/reference/,     // Bearer SNAPSHOT_SECRET (POST capture) + dashboard GET
   /^\/api\/aggregate-geo-regime/, // Bearer SNAPSHOT_SECRET (geo regime cron)
   /^\/api\/ingest-alma/,   // X-Ingest-Secret
   /^\/assets\//,           // Vite build output (hashed filenames)
