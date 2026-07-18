@@ -16,5 +16,6 @@ jobs:
     steps:
       - name: Capture vol surface snapshot
         run: |
-          curl -f -X POST "https://private-market-dashboard.vercel.app/api/vol-history" \
-            -H "Authorization: Bearer ${{ secrets.SNAPSHOT_SECRET }}"
+          curl --fail-with-body -s -X POST "https://private-market-dashboard.vercel.app/api/vol-history" \
+            -H "Authorization: Bearer ${{ secrets.SNAPSHOT_SECRET }}" \
+            -w "\nHTTP %{http_code}\n"
