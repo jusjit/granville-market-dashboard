@@ -1,0 +1,18 @@
+name: Reference Data Snapshots
+on:
+  schedule:
+    # Every 4 hours during RTH (13:25 UTC = 9:25am EDT, 21:05 UTC = 5:05pm EDT)
+    # Captures: pre-open (13:25) and post-close (21:05) weekdays
+    # ⚠️ DST: after Nov 1 2026 (EST) shift each hour +1 (14:25/22:05 UTC).
+    - cron: '25 13 * * 1-5'  # ~9:25am EDT pre-open
+    - cron: '5 21 * * 1-5'   # ~5:05pm EDT post-close
+  workflow_dispatch:
+
+jobs:
+  reference-snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Capture VIX futures + CME FedWatch snapshots
+        run: |
+          curl -f -X POST "https://private-market-dashboard.vercel.app/api/snapshot-reference" \
+            -H "Authorization: Bearer ${{ secrets.SNAPSHOT_SECRET }}"
