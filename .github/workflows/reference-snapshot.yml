@@ -14,5 +14,5 @@ jobs:
     steps:
       - name: Capture VIX futures + CME FedWatch snapshots
         run: |
-          curl -f -X POST "https://private-market-dashboard.vercel.app/api/snapshot-reference" \
+          curl -f -X POST "https://private-market-dashboard.vercel.app/api/reference" \
             -H "Authorization: Bearer ${{ secrets.SNAPSHOT_SECRET }}"

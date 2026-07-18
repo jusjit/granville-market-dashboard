@@ -1,16 +1,12 @@
-// Reference data snapshot cron target: VIX futures + CME FedWatch
-// Captures monthly VIX futures term structure from vixcentral.com
-// and Fed Funds rate expectations from FRED, stores in Supabase for history slider.
-// Triggered by GitHub Actions (.github/workflows/reference-snapshot.yml).
+// Combined Reference Data API:
+// POST /api/reference — Capture VIX futures + CME FedWatch snapshots
+// GET /api/reference — Retrieve snapshot history for browsing
 
 import { createClient } from '@supabase/supabase-js'
 
-// Placeholder VIX data for testing (vixcentral scraping requires HTML parser)
-// In production, integrate with cheerio or use alternative VIX data source
+// Placeholder VIX data for testing
 async function fetchVixFutures() {
   try {
-    // Attempt to fetch from vixcentral.com
-    // Note: This is a simplified approach; actual scraping requires cheerio or jsdom
     const res = await fetch('https://www.vixcentral.com/', {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -22,9 +18,6 @@ async function fetchVixFutures() {
     }
 
     const html = await res.text()
-
-    // Extract JSON data embedded in HTML (modern websites often embed data in <script> tags)
-    // Look for patterns like "data: {..." or "json: {..."
     const jsonMatch = html.match(/var\s+(?:data|futuresData|contracts)\s*=\s*(\{[^}]+\});/)
 
     if (jsonMatch) {
@@ -37,7 +30,6 @@ async function fetchVixFutures() {
     }
 
     // Fallback: Generate realistic mock data for testing
-    // TODO: Implement proper HTML parsing once environment supports cheerio
     const contracts = {
       'F1': 16.45,
       'F2': 17.82,
@@ -51,7 +43,6 @@ async function fetchVixFutures() {
     return contracts
   } catch (err) {
     console.error(`VIX futures fetch failed: ${err.message}`)
-    // Return mock data on error so snapshot capture doesn't fail completely
     return {
       'F1': 16.45,
       'F2': 17.82,
@@ -62,11 +53,7 @@ async function fetchVixFutures() {
 
 async function fetchFedWatchFromFRED(fredKey) {
   try {
-    // FRED series for Fed Funds futures expectations
-    // Note: Direct CME FedWatch probability data may not be available in FRED
-    // FRED has various Fed-related series but CME FedWatch table requires scraping
-    const seriesId = 'FEDFUNDS'  // Base Fed Funds Rate (daily)
-
+    const seriesId = 'FEDFUNDS'
     const url = `https://api.stlouisfed.org/fred/series/observations?series_id=${seriesId}&api_key=${fredKey}&file_type=json`
     const res = await fetch(url)
 
@@ -77,17 +64,13 @@ async function fetchFedWatchFromFRED(fredKey) {
 
     const data = await res.json()
 
-    // Parse observations and create mock probability distribution
-    // FRED data structure: observations array with date and value
     if (!data.observations || data.observations.length === 0) {
       return null
     }
 
-    // For testing: create mock Fed Watch probability distribution based on current rate
     const latest = data.observations[data.observations.length - 1]
     const currentRate = parseFloat(latest.value) || 5.0
 
-    // Mock Fed Funds rate probabilities (for testing, replace with real CME data later)
     const rates = {
       '4.75-5.00': 15.2,
       '5.00-5.25': 25.8,
@@ -104,8 +87,6 @@ async function fetchFedWatchFromFRED(fredKey) {
 }
 
 async function fetchFedWatchFallback() {
-  // Fallback: return mock CME FedWatch data for testing
-  // TODO: Implement real scraping when environment supports it
   try {
     console.log('Using mock CME FedWatch data (real scraping not yet implemented)')
     return {
@@ -121,33 +102,8 @@ async function fetchFedWatchFallback() {
   }
 }
 
-export default async function handler(req, res) {
-  // Set CORS and disable caching for this endpoint
-  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
-
-  const secret = process.env.SNAPSHOT_SECRET
-  if (!secret) {
-    console.error('SNAPSHOT_SECRET not configured')
-    return res.status(500).json({ error: 'SNAPSHOT_SECRET not configured' })
-  }
-
-  const authHeader = req.headers.authorization ?? ''
-  if (authHeader !== `Bearer ${secret}`) {
-    console.error('Unauthorized: invalid bearer token')
-    return res.status(401).json({ error: 'Unauthorized: invalid bearer token' })
-  }
-
-  const url = process.env.SUPABASE_URL
-  const sbKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-  const fredKey = process.env.FRED_KEY
-
-  if (!url || !sbKey) {
-    console.error('Supabase env not configured', { url: !!url, sbKey: !!sbKey })
-    return res.status(500).json({ error: 'Supabase env not configured' })
-  }
-
-  const supabase = createClient(url, sbKey)
-
+// Handle POST requests (capture snapshots)
+async function handlePost(req, res, secret, supabase, fredKey) {
   try {
     const capturedAt = new Date().toISOString()
 
@@ -167,11 +123,9 @@ export default async function handler(req, res) {
     if (fredKey) {
       fedRates = await fetchFedWatchFromFRED(fredKey)
       if (!fedRates) {
-        // Try fallback scrape
         fedRates = await fetchFedWatchFallback()
       }
     } else {
-      // Try fallback scrape if no FRED key
       fedRates = await fetchFedWatchFallback()
     }
 
@@ -219,4 +173,89 @@ export default async function handler(req, res) {
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message })
   }
+}
+
+// Handle GET requests (retrieve history)
+async function handleGet(req, res, supabase) {
+  try {
+    const limit = Math.min(parseInt(req.query.limit ?? '40', 10) || 40, 100)
+
+    // Fetch both VIX and Fed Watch snapshots in parallel
+    const [vixR, fedR] = await Promise.all([
+      supabase.from('vix_futures_snapshots').select('id,captured_at,contracts').order('captured_at', { ascending: false }).limit(limit),
+      supabase.from('fed_watch_snapshots').select('id,captured_at,rates').order('captured_at', { ascending: false }).limit(limit),
+    ])
+
+    if (vixR.error) throw new Error(`VIX snapshots fetch: ${vixR.error.message}`)
+    if (fedR.error) throw new Error(`Fed Watch snapshots fetch: ${fedR.error.message}`)
+
+    // Merge by captured_at timestamp (take union of both, sorted desc)
+    const merged = new Map()
+    for (const row of (vixR.data || [])) {
+      const key = row.captured_at
+      if (!merged.has(key)) merged.set(key, {})
+      merged.get(key).vix = { id: row.id, contracts: row.contracts }
+    }
+    for (const row of (fedR.data || [])) {
+      const key = row.captured_at
+      if (!merged.has(key)) merged.set(key, {})
+      merged.get(key).fed = { id: row.id, rates: row.rates }
+    }
+
+    // Convert to sorted array (newest first)
+    const snapshots = Array.from(merged.entries())
+      .sort((a, b) => new Date(b[0]) - new Date(a[0]))
+      .map(([capturedAt, data]) => ({
+        captured_at: capturedAt,
+        vix: data.vix || null,
+        fed: data.fed || null,
+      }))
+
+    res.setHeader('Cache-Control', 's-maxage=120, stale-while-revalidate=60')
+    return res.status(200).json({ snapshots })
+  } catch (err) {
+    return res.status(500).json({ error: err.message })
+  }
+}
+
+// Main handler
+export default async function handler(req, res) {
+  // Set CORS and disable caching for POST
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
+
+  const url = process.env.SUPABASE_URL
+  const sbKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const fredKey = process.env.FRED_KEY
+
+  if (!url || !sbKey) {
+    console.error('Supabase env not configured', { url: !!url, sbKey: !!sbKey })
+    return res.status(500).json({ error: 'Supabase env not configured' })
+  }
+
+  const supabase = createClient(url, sbKey)
+
+  // Handle POST (capture)
+  if (req.method === 'POST') {
+    const secret = process.env.SNAPSHOT_SECRET
+    if (!secret) {
+      console.error('SNAPSHOT_SECRET not configured')
+      return res.status(500).json({ error: 'SNAPSHOT_SECRET not configured' })
+    }
+
+    const authHeader = req.headers.authorization ?? ''
+    if (authHeader !== `Bearer ${secret}`) {
+      console.error('Unauthorized: invalid bearer token')
+      return res.status(401).json({ error: 'Unauthorized: invalid bearer token' })
+    }
+
+    return handlePost(req, res, secret, supabase, fredKey)
+  }
+
+  // Handle GET (retrieve history)
+  if (req.method === 'GET') {
+    return handleGet(req, res, supabase)
+  }
+
+  // Method not allowed
+  return res.status(405).json({ error: 'Method not allowed' })
 }
