@@ -469,7 +469,11 @@ def parse_post_html(raw_html, subject):
         up_piv = extract_upside_pivot(text)
     dn_piv = float(dn_pair.group(1).replace(',','')) if dn_pair else None
     if dn_piv is None:
-        dn_piv = extract_downside_pivot(text, exclude=up_piv)
+        # NEW: Check if "Downside pivot is the centroid itself" — if so, use centroid
+        if re.search(r'[Dd]ownside pivot\s+is\s+(?:the\s+)?centroid\s+itself', text):
+            dn_piv = centroid
+        else:
+            dn_piv = extract_downside_pivot(text, exclude=up_piv)
 
     up_tgt = float(up_pair.group(2).replace(',','')) if up_pair else None
     if up_tgt is None:
