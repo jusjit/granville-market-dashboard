@@ -113,6 +113,20 @@ export default function App() {
 
   useEffect(() => { refresh() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Alma data (live SPX reference + active rules + touch log) refreshes on its
+  // own 15-min timer, independent of the manual Refresh button. It's cheap
+  // (Supabase reads + a couple of Tradier calls, no LLM), unlike the rest of
+  // the dashboard which stays manual-refresh-only to control 1min.ai/Finnhub cost.
+  useEffect(() => {
+    if (!SHOW_ALMA) return
+    const id = setInterval(() => {
+      fetchAlmaData()
+        .then(data => { setAlmaData(data); setAlmaError(null) })
+        .catch(err => setAlmaError(err.message))
+    }, 15 * 60 * 1000)
+    return () => clearInterval(id)
+  }, [])
+
   const phase = compositeScore != null ? getMarketPhase(compositeScore, prevScore) : null
 
   return (
