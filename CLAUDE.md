@@ -42,7 +42,7 @@ Private project ONLY: `VITE_SHOW_ALMA=true` (its absence hides Alma on public).
 Not set anywhere yet; the panel isn't wired into `App.jsx` so the flag would currently do nothing.
 
 ## Supabase (project "LalliChaths", https://oteatsbkdamvczdceion.supabase.co)
-Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX/VIX OHLC + gaps), `rules` (16 backtested rules with confidence tiers), `dashboard_snapshots` (twice-daily Granville+macro), `synthesis_cache` (id=1, AI synthesis 2h cache), `vol_surface_snapshots` (2-hourly vol term structure for history slider).
+Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX/VIX OHLC + gaps), `rules` (12 rules, **schema v2** — see below), `dashboard_snapshots` (twice-daily Granville+macro), `synthesis_cache` (id=1, AI synthesis 2h cache), `vol_surface_snapshots` (2-hourly vol term structure for history slider).
 - RLS enabled, no policies — only service role key reads/writes.
 - `intraday_posts`/`weekly_posts`: unique constraint on `date`, identity ids (for webhook upserts).
 - Original data migrated from SQLite (`Alma backtest rules/` folder, gitignored).
@@ -79,8 +79,18 @@ Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX
 
 ### `api/alma.js`
 - GET — latest `intraday_posts` + `weekly_posts` + `market_data` rows + all rules from Supabase
-- Evaluates the 16 rules with explicit per-rule_id JS (no eval); returns `{ intraday, weekly, market, activeRules }`
+- Evaluates the 12 v2 rules with explicit per-`id` JS (no eval), returns them **ordered by rank** (strongest first); `{ intraday, weekly, market, activeRules }`
 - `s-maxage=300`. Feeds AlmaPanel + AlmaLog (private dashboard only).
+
+### Rules schema v2 (migrated 2026-07-17; source of truth = `Alma backtest rules/alma_rules.json`)
+- **Two independent tiers, do not conflate**: `reliability_tier` (VALIDATED/EMERGING/EXPLORATORY — does the stat replicate) and `placebo_status` (PASSED/FAILED/UNTESTED — does the level's *placement* carry information vs just proximity/geometry).
+- **A rule is tradeable signal ONLY if `placebo_status='PASSED'`.** Exactly one qualifies: `dont_fade_rule`. Everything else is descriptive context (real numbers, but explained by geometry — e.g. weekly_pivot_touch 86.5% is information-free; prior-week hi/lo beats it).
+- `actionable_as_signal` MUST equal `placebo_status='PASSED'` — enforced by a **Postgres CHECK constraint** (`rules_actionable_requires_placebo_passed`), so a violating write is rejected (error 23514) at the DB layer, not just in app code.
+- Table columns: id, name, horizon, rank, reliability_tier, placebo_status, actionable_as_signal, condition, finding, stats (jsonb), interpretation, caveats. Recreate via `Alma backtest rules/rules_v2_schema.sql`.
+- **Push rules with `Alma backtest rules/push_rules_v2.py`** (reads keys from `.env`, rules-only). NEVER use `migrate_to_supabase.py` for a rules update — it re-pushes posts from the stale SQLite snapshot and would clobber Gmail-ingested posts.
+- Validate the JSON with `Alma backtest rules/validate_rules.py` (checks schema + the actionable invariant; reads utf-8-sig).
+- AlmaPanel: green reserved for the one Signal rule; VALIDATED badge is grey (a green VALIDATED on an info-free rule was the v1 bug). Each rule shows Signal/Context badge + naive-null inline.
+- LLM-facing companion: `Alma backtest rules/alma_rules_prompt.md` (leads with the usage gate). No LLM currently consumes the rules; if wired, use gemini-2.5-flash like synthesis.
 
 ### Vol surface (`api/tradier.js` live + `api/snapshot-vol.js` cron + `api/vol-history.js`)
 - Compute shared in **`lib/volSurfaceCore.mjs`** (imported by both routes so they never diverge).
