@@ -122,16 +122,29 @@ async function fetchFedWatchFallback() {
 }
 
 export default async function handler(req, res) {
+  // Set CORS and disable caching for this endpoint
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
+
   const secret = process.env.SNAPSHOT_SECRET
-  if (!secret) return res.status(500).json({ error: 'SNAPSHOT_SECRET not configured' })
-  if ((req.headers.authorization ?? '') !== `Bearer ${secret}`) {
-    return res.status(401).json({ error: 'Unauthorized' })
+  if (!secret) {
+    console.error('SNAPSHOT_SECRET not configured')
+    return res.status(500).json({ error: 'SNAPSHOT_SECRET not configured' })
   }
 
-  const url = process.env.SUPABASE_URL, sbKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  const authHeader = req.headers.authorization ?? ''
+  if (authHeader !== `Bearer ${secret}`) {
+    console.error('Unauthorized: invalid bearer token')
+    return res.status(401).json({ error: 'Unauthorized: invalid bearer token' })
+  }
+
+  const url = process.env.SUPABASE_URL
+  const sbKey = process.env.SUPABASE_SERVICE_ROLE_KEY
   const fredKey = process.env.FRED_KEY
 
-  if (!url || !sbKey) return res.status(500).json({ error: 'Supabase env not configured' })
+  if (!url || !sbKey) {
+    console.error('Supabase env not configured', { url: !!url, sbKey: !!sbKey })
+    return res.status(500).json({ error: 'Supabase env not configured' })
+  }
 
   const supabase = createClient(url, sbKey)
 
