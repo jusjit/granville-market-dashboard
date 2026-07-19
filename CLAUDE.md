@@ -42,10 +42,11 @@ Private project ONLY: `VITE_SHOW_ALMA=true` (its absence hides Alma on public).
 Not set anywhere yet; the panel isn't wired into `App.jsx` so the flag would currently do nothing.
 
 ## Supabase (project "LalliChaths", https://oteatsbkdamvczdceion.supabase.co)
-Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX/VIX OHLC + gaps), `rules` (12 rules, **schema v2** — see below), `dashboard_snapshots` (twice-daily Granville+macro), `synthesis_cache` (id=1, AI synthesis 2h cache), `vol_surface_snapshots` (2-hourly vol term structure for history slider).
+Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX/VIX OHLC + gaps), `rules` (12 rules, **schema v2** — see below), `dashboard_snapshots` (twice-daily Granville+macro), `synthesis_cache` (id=1, AI synthesis 2h cache), `vol_surface_snapshots` (2-hourly vol term structure for history slider), `vix_futures_snapshots` (4-hourly VX monthly futures prices), `fed_watch_snapshots` (4-hourly CME FedWatch probabilities).
 - RLS enabled, no policies — only service role key reads/writes.
 - `intraday_posts`/`weekly_posts`: unique constraint on `date`, identity ids (for webhook upserts).
 - Original data migrated from SQLite (`Alma backtest rules/` folder, gitignored).
+- **GOTCHA — raw SQL tables need explicit GRANTs**: tables created via Supabase SQL editor do NOT get PostgREST access automatically. Run `GRANT ALL ON TABLE <name> TO anon, authenticated, service_role;` after creation, or the API will return "permission denied". The Table Editor UI does this automatically; raw SQL does not.
 
 ## API Routes (`/api/*.js` — Vercel serverless functions)
 
@@ -126,10 +127,25 @@ Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX
 - On close: upserts SPX/VIX OHLC+gaps into `market_data` — GUARDED by Tradier trade_date == today (NY) so closed-market runs can't write stale data
 - Trigger: `.github/workflows/dashboard-snapshot.yml` — 13:25/21:05 UTC weekdays (9:25am/5:05pm EDT). ⚠️ DST: after Nov 1 2026 change crons to 14:25/22:05 UTC. GH repo secret: SNAPSHOT_SECRET.
 
+### `api/reference.js` (VX futures + CME FedWatch snapshots — Reference Data panel)
+- POST `/api/reference` — auth `Bearer SNAPSHOT_SECRET`, captures VX futures + FedWatch; called by `.github/workflows/reference-snapshot.yml` at 13:25/21:05 UTC weekdays.
+- GET `/api/reference?limit=N` — returns merged snapshot history from `vix_futures_snapshots` + `fed_watch_snapshots` (default 40, max 100).
+- **VX futures** — scraped from `https://vixcentral.com/` (FastAPI SSR; CBOE delayed data). The page embeds prices as JS variables confirmed via browser DevTools inspection:
+  - `var mx = ['Jul','Aug','Sep',...]` — contract month labels (single-quoted, confirmed format)
+  - `var vcurve_data_var = [...]` — live/last traded prices (empty pre-open and weekends)
+  - `var previous_close_var = [18.80, 19.30, ...]` — previous settlement (always populated)
+  - Uses live prices if ≥4 non-zero, otherwise falls back to prev close. No Tradier needed.
+  - **GOTCHA — CORS blocks fetch from browser JS.** vixcentral.com CORS-blocks XHR/fetch from other origins; the data is not available from the client side. It must be fetched server-side (Vercel function). CBOE CDN endpoints (`cdn.cboe.com`) also block non-browser fetches. The vixcentral SSR HTML scrape is the only confirmed working approach.
+  - vixcentral.com has a public OpenAPI spec at `/openapi.json`. The `/ajax_update` route is just a keepalive ("hello"); `/ajax_historical?n1=YYYY-MM-DD` returns historical comparison data. Current prices come only from the initial SSR HTML.
+- **CME FedWatch** — Yahoo Finance ZQ futures (30-day Fed Funds, CBOT). `ZQ{code}{yr}.CBT` e.g. `ZQQ26.CBT`. Price 96.335 → implied rate = 100 − 96.335 = 3.665%. Linear interpolation across ±2×25bp outcomes from current FRED target range (DFEDTARL/DFEDTARU). FOMC calendar hardcoded in `FOMC_2026` array (update each year).
+- `s-maxage=120` on GET; no cache on POST.
+- **middleware.js**: both `/api/reference` and `/api/vol-history` are in `OPEN_PATHS` (added after cron exit-code-22 failures — any new cron endpoint must be added here or the private project's Edge middleware will 401 it before the function runs).
+
 ### `api/login.js` + `middleware.js` (private dashboard password gate)
 - Edge middleware at repo root; enforces ONLY when `DASHBOARD_PASSWORD` env is set (private project). Public project unaffected.
 - Cookie `dashboard_auth` = SHA-256(password), 30 days. Login page: `/login` (LoginGate.jsx in the SPA).
-- Excluded paths: /login, /api/login, /api/snapshot, /api/ingest-alma (own secrets), /assets, favicon.
+- Excluded paths: /login, /api/login, /api/snapshot, /api/vol-history, /api/reference, /api/aggregate-geo-regime, /api/ingest-alma (own secrets), /assets, favicon.
+- **CRITICAL**: any new cron-triggered endpoint must be added to `OPEN_PATHS` in `middleware.js` or it will silently 401 on the private project. Public project has no middleware — only the private one is affected.
 
 ### Gmail Apps Script ("Alma Email Ingester")
 - `checkForNewAlmaPosts` polls every 15 min (time-driven trigger — verify it exists in Triggers panel!)
@@ -140,14 +156,21 @@ Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX
 - Production key, `api.tradier.com`. Real indices work: SPX, VIX, VIX1D, VIX9D, VIX3M. NOT available: MOVE (symbol = Corvex Inc stock!), USDJPY, DXY — no forex.
 
 ## Dashboard Sections (in order)
-1. **AI Synthesis** — indigo panel, claude-sonnet-4-6 via 1min.ai, updates on refresh
+1. **AI Synthesis** — indigo panel, gemini-2.5-flash via 1min.ai, updates on refresh
 2. **Granville Composite** — Recharts half-circle gauge (0–100)
 3. **7 Granville Signal Cards** — green/yellow/red
-4. **Macro Conditions** — slate cards, descriptive only (not scored)
-5. **Alma Centroid** — placeholder ("coming soon")
-6. **Signal Log** — plain-English bullet log
-7. **Geo Regime** — PLANNED, private dashboard only. Not yet in this list for real —
-   see "Geo Regime Panel (WIP)" below for status/location before assuming it renders.
+4. **Granville Signal Log** — plain-English bullet log
+5. **Macro Conditions** — slate cards, descriptive only (not scored)
+6. **Vol Surface** — SPX term structure, Tradier/ORATS options data
+7. **Reference Data** — collapsible; VX monthly futures (vixcentral/CBOE delayed) + CME FedWatch (ZQ futures/FRED). Snapshot slider for historical comparison. Populated by 4-hourly cron.
+8. **Alma Centroid** — private dashboard only (`VITE_SHOW_ALMA=true`)
+9. **Geo Regime** — PLANNED, private dashboard only. See "Geo Regime Panel (WIP)" below.
+
+## Vercel Function Count (Hobby plan limit: 12)
+Current count: **11 JS + 1 Python = 12 total** (at the limit).
+- JS: `finnhub`, `fred`, `synthesis`, `alma`, `tradier`, `vol`, `vol-history`, `snapshot`, `login`, `reference`, `aggregate-geo-regime`
+- Python: `ingest-alma` (counts as a function; `requirements.txt` triggers Python runtime)
+- **Do not add new function files without deleting/merging an existing one.** The Python file counts even though it has a `.py` extension. Merging two JS handlers into one file (GET + POST on same route) is the standard approach to stay under the limit.
 
 ## Granville Scoring System
 
@@ -202,16 +225,21 @@ src/
     signals.js             # SIGNAL_DEFS, fetchAllSignals(), scoring logic
     macro.js               # fetchAllMacroSignals()
     synthesis.js           # fetchSynthesis() — POST to /api/synthesis
+    referencedata.js       # fetchReferenceLatest() (latest snapshot for panel),
+                           # fetchReferenceHistory(limit) (history for slider)
   components/
     ScoreGauge.jsx         # Recharts half-circle, divergence warning banner
     SignalCard.jsx         # green/yellow/red, "2× weight" badge for breadth
     MacroCard.jsx          # slate cards, dashed border for staticTile
     SynthesisPanel.jsx     # indigo panel, loading/error/paragraph states
     SignalLog.jsx          # plain-English bullet log, direction arrows
+    ReferenceDataPanel.jsx # collapsible VX futures + FedWatch charts + snapshot slider
 api/
   finnhub.js               # serverless — Finnhub proxy
   fred.js                  # serverless — FRED proxy
   synthesis.js             # serverless — 1min.ai proxy
+  reference.js             # GET history + POST snapshot (VX futures + FedWatch)
+  vol-history.js           # GET vol snapshots + POST vol snapshot (merged handler)
 local-api-server.mjs       # local dev only — runs api/* as HTTP server on :3001
 ```
 
