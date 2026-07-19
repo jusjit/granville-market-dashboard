@@ -19,9 +19,9 @@ const STYLES = {
 }
 
 function TrendIcon({ trend, className }) {
-  if (trend === 'up') return <TrendingUp size={13} className={className} />
-  if (trend === 'down') return <TrendingDown size={13} className={className} />
-  return <Minus size={13} className="text-slate-500" />
+  if (trend === 'up') return <TrendingUp size={11} className={className} />
+  if (trend === 'down') return <TrendingDown size={11} className={className} />
+  return <Minus size={11} className="text-slate-500" />
 }
 
 export default function SignalCard({ signal }) {
@@ -37,50 +37,49 @@ export default function SignalCard({ signal }) {
       : `$${signal.ratioNow.toFixed(2)}`
     : '—'
 
-  const scoreMax = signal.doubleWeight ? 40 : 20
   const scoreDisplay = signal.doubleWeight ? signal.score / 2 : signal.score
 
   return (
-    <div className={`rounded-xl border p-4 flex flex-col gap-3 ${styles.wrap}`}>
-      <div className="flex items-start justify-between gap-2">
+    <div className={`rounded-xl border p-3 flex flex-col gap-2 overflow-hidden ${styles.wrap}`}>
+      <div className="flex items-start justify-between gap-1">
         <div className="min-w-0">
-          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest">
+          <p className="text-[9px] font-semibold text-slate-500 uppercase tracking-wide truncate">
             {signal.denominator ? `${signal.numerator} / ${signal.denominator}` : signal.numerator}
           </p>
-          <h3 className="text-sm font-semibold text-white mt-0.5 leading-tight">{signal.label}</h3>
+          <h3 className="text-xs font-semibold text-white mt-0.5 leading-tight">{signal.label}</h3>
         </div>
-        <div className="flex flex-col items-end gap-1 shrink-0">
-          <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${styles.badge}`}>
+        <div className="flex flex-col items-end gap-0.5 shrink-0">
+          <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${styles.badge}`}>
             {signal.reading}
           </span>
           {signal.doubleWeight && (
-            <span className="text-[10px] text-slate-500">2× weight</span>
+            <span className="text-[9px] text-slate-500">2× wt</span>
           )}
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
-        <span className="font-mono text-lg font-bold text-white">{ratioDisplay}</span>
-        <span className={`flex items-center gap-1 font-mono text-xs ${pctColor}`}>
+      <div className="flex items-center gap-1.5 min-w-0">
+        <span className="font-mono text-sm font-bold text-white shrink-0">{ratioDisplay}</span>
+        <span className={`flex items-center gap-0.5 font-mono text-[10px] min-w-0 truncate ${pctColor}`}>
           <TrendIcon trend={trend} className={pctColor} />
           {signal.pctChange != null ? `${pctSign}${pct.toFixed(2)}%` : '—'}
         </span>
-        <span className={`ml-auto text-xs font-bold ${styles.accent}`}>
+        <span className={`ml-auto text-[10px] font-bold shrink-0 ${styles.accent}`}>
           {scoreDisplay}/20
         </span>
       </div>
 
       {signal.denominator && signal.numPrice != null && (
-        <div className="flex gap-3 text-[11px] text-slate-500 font-mono">
+        <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] text-slate-500 font-mono">
           <span>{signal.numerator}: ${signal.numPrice.toFixed(2)}</span>
           <span>{signal.denominator}: ${signal.denPrice.toFixed(2)}</span>
         </div>
       )}
 
-      <p className="text-xs text-slate-400 leading-relaxed">{signal.description}</p>
+      <p className="text-[10px] text-slate-400 leading-relaxed">{signal.description}</p>
 
       {signal.error && (
-        <p className="text-[11px] text-red-400 mt-1">⚠ Data unavailable</p>
+        <p className="text-[10px] text-red-400 mt-1">⚠ Data unavailable</p>
       )}
     </div>
   )

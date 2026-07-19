@@ -183,12 +183,10 @@ export default function App() {
             <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">
               Granville Signal Cards
             </h2>
-            <div className="flex justify-center">
-              <div className="grid grid-cols-7 gap-3" style={{ maxWidth: 'fit-content' }}>
-                {signals.map((signal) => (
-                  <SignalCard key={signal.id} signal={signal} />
-                ))}
-              </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-7 gap-2">
+              {signals.map((signal) => (
+                <SignalCard key={signal.id} signal={signal} />
+              ))}
             </div>
           </section>
         )}
