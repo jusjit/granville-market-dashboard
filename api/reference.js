@@ -64,8 +64,8 @@ async function fetchVixFutures() {
               console.log('VIX futures: parsed from embedded JS array')
               return contracts
             }
+          }
         } catch (_) { /* continue */ }
-        }
       }
     }
 
