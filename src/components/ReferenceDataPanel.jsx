@@ -99,10 +99,22 @@ export default function ReferenceDataPanel({ data, loading, error }) {
   const viewingHistory = historyMode && ordered.length > 0
   const selected = viewingHistory ? ordered[Math.min(selIdx, ordered.length - 1)] : null
 
+  // Supabase JSONB doesn't preserve key order — sort month labels chronologically
+  // from the current calendar month so the term structure reads left-to-right in time.
+  const MONTH_ORDER = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  function sortVixEntries(entries) {
+    const curMon = new Date().getMonth() // 0 = Jan
+    return [...entries].sort(([a], [b]) => {
+      const ia = (MONTH_ORDER.indexOf(a) - curMon + 12) % 12
+      const ib = (MONTH_ORDER.indexOf(b) - curMon + 12) % 12
+      return ia - ib
+    })
+  }
+
   // Prepare VIX chart data
   const vixChartData = []
   if (data.vix?.contracts) {
-    for (const [contract, price] of Object.entries(data.vix.contracts)) {
+    for (const [contract, price] of sortVixEntries(Object.entries(data.vix.contracts))) {
       vixChartData.push({ contract, price })
     }
   }
