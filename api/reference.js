@@ -28,86 +28,50 @@ const FOMC_2026 = [
 
 const MONTH_CODES = { 1:'F',2:'G',3:'H',4:'J',5:'K',6:'M',7:'N',8:'Q',9:'U',10:'V',11:'X',12:'Z' }
 
-// ─── VIX Futures scraping (vixcentral.com) ────────────────────────────────────
-async function fetchVixFutures() {
-  try {
-    const res = await fetch('https://www.vixcentral.com/', {
-      headers: { ...BROWSER_HEADERS, 'Referer': 'https://www.google.com/' },
-      signal: AbortSignal.timeout(8000),
-    })
-    if (!res.ok) throw new Error(`vixcentral HTTP ${res.status}`)
-
-    const html = await res.text()
-
-    // Attempt 1: look for embedded JS array/object with VIX futures prices
-    // vixcentral embeds data as: var data = [...] or similar
-    const patterns = [
-      /var\s+futures\s*=\s*(\[[^\]]+\])/,
-      /var\s+data\s*=\s*(\[[^\]]+\])/,
-      /"futures"\s*:\s*(\[[^\]]+\])/,
-      /futures_prices\s*=\s*(\[[^\]]+\])/,
-    ]
-    for (const pat of patterns) {
-      const m = html.match(pat)
-      if (m) {
-        try {
-          const arr = JSON.parse(m[1])
-          if (Array.isArray(arr) && arr.length >= 4) {
-            const contracts = {}
-            arr.slice(0, 8).forEach((v, i) => {
-              const price = parseFloat(v)
-              if (!isNaN(price) && price > 8 && price < 100) {
-                contracts[`F${i + 1}`] = price
-              }
-            })
-            if (Object.keys(contracts).length >= 4) {
-              console.log('VIX futures: parsed from embedded JS array')
-              return contracts
-            }
-          }
-        } catch (_) { /* continue */ }
-      }
-    }
-
-    // Attempt 2: extract numbers from table cells that look like VIX prices (8–80)
-    // vixcentral shows a table of monthly futures prices
-    const tdMatches = [...html.matchAll(/<td[^>]*>\s*([\d]{1,2}\.[\d]{2,3})\s*<\/td>/g)]
-    const vixPrices = tdMatches
-      .map(m => parseFloat(m[1]))
-      .filter(v => v > 8 && v < 80)
-
-    if (vixPrices.length >= 4) {
-      const contracts = {}
-      vixPrices.slice(0, 8).forEach((price, i) => { contracts[`F${i + 1}`] = price })
-      console.log(`VIX futures: extracted ${Object.keys(contracts).length} prices from table`)
-      return contracts
-    }
-
-    // Attempt 3: broader number extraction near "VIX" or contract month labels
-    const monthPattern = /(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[^<]*<[^>]*>\s*([\d]{1,2}\.[\d]{2})/g
-    const monthMatches = [...html.matchAll(monthPattern)]
-    if (monthMatches.length >= 4) {
-      const contracts = {}
-      monthMatches.slice(0, 8).forEach((m, i) => {
-        const price = parseFloat(m[1])
-        if (price > 8 && price < 80) contracts[`F${i + 1}`] = price
-      })
-      if (Object.keys(contracts).length >= 4) {
-        console.log('VIX futures: extracted from month-labeled rows')
-        return contracts
-      }
-    }
-
-    console.warn('VIX futures: scrape parsing failed, using mock data')
-    return mockVix()
-  } catch (err) {
-    console.error(`VIX futures fetch error: ${err.message}`)
-    return mockVix()
+// ─── VIX term structure via Tradier (real CBOE data) ─────────────────────────
+// Uses the same CBOE VIX indices the dashboard already fetches for the macro section.
+// VIX1D (~1d), VIX9D (~9d), VIX (~30d), VIX3M (~93d) are calculated directly
+// from SPX options — more accurate than VX futures and available via Tradier.
+async function fetchVixFutures(tradierKey) {
+  if (!tradierKey) {
+    console.warn('VIX term structure: TRADIER_KEY not set')
+    return null
   }
-}
+  try {
+    const symbols = 'VIX,VIX1D,VIX9D,VIX3M'
+    const res = await fetch(
+      `https://api.tradier.com/v1/markets/quotes?symbols=${symbols}&greeks=false`,
+      {
+        headers: {
+          Authorization: `Bearer ${tradierKey}`,
+          Accept: 'application/json',
+        },
+        signal: AbortSignal.timeout(8000),
+      }
+    )
+    if (!res.ok) throw new Error(`Tradier HTTP ${res.status}`)
+    const json = await res.json()
 
-function mockVix() {
-  return { F1: 16.45, F2: 17.82, F3: 18.10, F4: 18.45, F5: 18.75, F6: 18.95 }
+    const quotes = json?.quotes?.quote
+    if (!quotes) throw new Error('No quotes in Tradier response')
+
+    const quoteArr = Array.isArray(quotes) ? quotes : [quotes]
+    const bySymbol = Object.fromEntries(quoteArr.map(q => [q.symbol, q.last ?? q.close]))
+
+    // Map to ordered term structure: shortest to longest tenor
+    const contracts = {}
+    if (bySymbol['VIX1D'] != null) contracts['1D']  = +bySymbol['VIX1D'].toFixed(2)
+    if (bySymbol['VIX9D'] != null) contracts['9D']  = +bySymbol['VIX9D'].toFixed(2)
+    if (bySymbol['VIX']   != null) contracts['30D'] = +bySymbol['VIX'].toFixed(2)
+    if (bySymbol['VIX3M'] != null) contracts['3M']  = +bySymbol['VIX3M'].toFixed(2)
+
+    if (Object.keys(contracts).length < 2) throw new Error('Insufficient VIX quotes returned')
+    console.log('VIX term structure: fetched from Tradier', contracts)
+    return contracts
+  } catch (err) {
+    console.error(`VIX term structure fetch error: ${err.message}`)
+    return null
+  }
 }
 
 // ─── CME FedWatch via Yahoo Finance ZQ futures ────────────────────────────────
@@ -220,12 +184,12 @@ function buildProbabilities(impliedRate, currentLow, currentHigh) {
 }
 
 // ─── POST handler (capture snapshots) ─────────────────────────────────────────
-async function handlePost(req, res, supabase, fredKey) {
+async function handlePost(req, res, supabase, fredKey, tradierKey) {
   try {
     const capturedAt = new Date().toISOString()
 
     const [vixContracts, fedResult] = await Promise.all([
-      fetchVixFutures(),
+      fetchVixFutures(tradierKey),
       fetchFedWatch(fredKey),
     ])
 
@@ -304,6 +268,7 @@ export default async function handler(req, res) {
   const url = process.env.SUPABASE_URL
   const sbKey = process.env.SUPABASE_SERVICE_ROLE_KEY
   const fredKey = process.env.FRED_KEY
+  const tradierKey = process.env.TRADIER_KEY
 
   if (!url || !sbKey) return res.status(500).json({ error: 'Supabase env not configured' })
 
@@ -315,7 +280,7 @@ export default async function handler(req, res) {
     if ((req.headers.authorization ?? '') !== `Bearer ${secret}`) {
       return res.status(401).json({ error: 'Unauthorized' })
     }
-    return handlePost(req, res, supabase, fredKey)
+    return handlePost(req, res, supabase, fredKey, tradierKey)
   }
 
   if (req.method === 'GET') return handleGet(req, res, supabase)
