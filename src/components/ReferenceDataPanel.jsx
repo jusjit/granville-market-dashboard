@@ -160,7 +160,7 @@ export default function ReferenceDataPanel({ data, loading, error }) {
         className="flex items-center gap-2 mb-3 text-xs font-semibold text-slate-500 uppercase tracking-widest hover:text-slate-400 transition-colors"
       >
         <ChevronDown size={14} style={{ transform: collapsed ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }} />
-        Reference Data
+        VIX Futures & Fed Rate %
       </button>
 
       {!collapsed && (

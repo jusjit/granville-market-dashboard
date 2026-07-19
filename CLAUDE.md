@@ -162,7 +162,7 @@ Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX
 4. **Granville Signal Log** — plain-English bullet log
 5. **Macro Conditions** — slate cards, descriptive only (not scored)
 6. **Vol Surface** — SPX term structure, Tradier/ORATS options data
-7. **Reference Data** — collapsible; VX monthly futures (vixcentral/CBOE delayed) + CME FedWatch (ZQ futures/FRED). Snapshot slider for historical comparison. Populated by 4-hourly cron.
+7. **VIX Futures & Fed Rate %** — collapsible; VX monthly futures (vixcentral/CBOE delayed) + CME FedWatch (ZQ futures/FRED). Snapshot slider for historical comparison. Populated by 4-hourly cron.
 8. **Alma Centroid** — private dashboard only (`VITE_SHOW_ALMA=true`)
 9. **Geo Regime** — PLANNED, private dashboard only. See "Geo Regime Panel (WIP)" below.
 
