@@ -9,3 +9,14 @@ export async function fetchReferenceHistory(limit = 40) {
   if (data.error) throw new Error(data.error)
   return data.snapshots || []
 }
+
+// Returns the latest snapshot formatted for ReferenceDataPanel: { vix, fed }
+export async function fetchReferenceLatest() {
+  const snapshots = await fetchReferenceHistory(1)
+  const snap = snapshots[0]
+  if (!snap) return null
+  return {
+    vix: snap.vix ? { contracts: snap.vix.contracts } : null,
+    fed: snap.fed ? { rates: snap.fed.rates }  : null,
+  }
+}

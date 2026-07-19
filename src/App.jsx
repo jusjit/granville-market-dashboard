@@ -8,6 +8,7 @@ import AlmaLog from './components/AlmaLog'
 import VolSurfacePanel from './components/VolSurfacePanel'
 import { fetchVolSurface } from './lib/volsurface'
 import ReferenceDataPanel from './components/ReferenceDataPanel'
+import { fetchReferenceLatest } from './lib/referencedata'
 
 import LoginGate from './components/LoginGate'
 
@@ -74,10 +75,12 @@ export default function App() {
         .catch(err => { setAlmaError(err.message); setAlmaLoading(false) })
     }
 
-    // Reference data (VIX futures + CME FedWatch) — currently placeholder, manual fetch for testing
-    // TODO: implement live fetch from snapshot endpoint when backend is ready
-    setReferenceLoading(false)
-    setReferenceData({ vix: { contracts: {} }, fed: { rates: {} } })
+    // Reference data — latest snapshot (VX futures + CME FedWatch), non-blocking
+    setReferenceLoading(true)
+    setReferenceError(null)
+    fetchReferenceLatest()
+      .then(data => { setReferenceData(data); setReferenceLoading(false) })
+      .catch(err => { setReferenceError(err.message); setReferenceLoading(false) })
 
     try {
       // Fetch Granville and Macro in parallel

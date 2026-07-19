@@ -157,7 +157,7 @@ export default function ReferenceDataPanel({ data, loading, error }) {
           <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
             <div className="flex items-baseline justify-between flex-wrap gap-2 mb-3">
               <p className="text-xs text-slate-500">
-                VIX term structure (CBOE indices) · CME Fed rate expectations · Tradier / FRED
+                VX monthly futures (vixcentral / CBOE delayed) · CME Fed rate expectations · FRED
               </p>
               <button
                 onClick={() => setHistoryMode(v => !v)}
@@ -208,7 +208,7 @@ export default function ReferenceDataPanel({ data, loading, error }) {
               {/* VIX Futures Chart */}
               {vixChartData.length > 0 && (
                 <div>
-                  <p className="text-[10px] text-slate-600 mb-2">VIX Term Structure (CBOE)</p>
+                  <p className="text-[10px] text-slate-600 mb-2">VX Futures Term Structure (CBOE delayed)</p>
                   <div className="h-64">
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={vixChartData} margin={{ top: 12, right: 16, bottom: 20, left: 0 }}>

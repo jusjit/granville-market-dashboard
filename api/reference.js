@@ -28,48 +28,53 @@ const FOMC_2026 = [
 
 const MONTH_CODES = { 1:'F',2:'G',3:'H',4:'J',5:'K',6:'M',7:'N',8:'Q',9:'U',10:'V',11:'X',12:'Z' }
 
-// ─── VIX term structure via Tradier (real CBOE data) ─────────────────────────
-// Uses the same CBOE VIX indices the dashboard already fetches for the macro section.
-// VIX1D (~1d), VIX9D (~9d), VIX (~30d), VIX3M (~93d) are calculated directly
-// from SPX options — more accurate than VX futures and available via Tradier.
-async function fetchVixFutures(tradierKey) {
-  if (!tradierKey) {
-    console.warn('VIX term structure: TRADIER_KEY not set')
-    return null
-  }
+// ─── VIX futures curve via vixcentral.com (SSR HTML, CBOE delayed data) ──────
+// vixcentral.com is a FastAPI app that SSR-embeds VX monthly contract prices
+// as JS variables in the page HTML. Variable names confirmed via browser inspection:
+//   var mx = ['Jul','Aug','Sep',...]   — contract month labels
+//   var vcurve_data_var = [...]         — live/last prices (empty pre-open)
+//   var previous_close_var = [...]      — previous settlement (always populated)
+// Use live prices when available (≥4 non-zero values), else fall back to prev close.
+async function fetchVixFutures() {
   try {
-    const symbols = 'VIX,VIX1D,VIX9D,VIX3M'
-    const res = await fetch(
-      `https://api.tradier.com/v1/markets/quotes?symbols=${symbols}&greeks=false`,
-      {
-        headers: {
-          Authorization: `Bearer ${tradierKey}`,
-          Accept: 'application/json',
-        },
-        signal: AbortSignal.timeout(8000),
-      }
-    )
-    if (!res.ok) throw new Error(`Tradier HTTP ${res.status}`)
-    const json = await res.json()
+    const res = await fetch('https://vixcentral.com/', {
+      headers: BROWSER_HEADERS,
+      signal: AbortSignal.timeout(10000),
+    })
+    if (!res.ok) throw new Error(`vixcentral HTTP ${res.status}`)
+    const html = await res.text()
 
-    const quotes = json?.quotes?.quote
-    if (!quotes) throw new Error('No quotes in Tradier response')
+    // Month labels: var mx = ['Jul','Aug','Sep',...]
+    const catMatch = html.match(/var\s+mx\s*=\s*\[([^\]]+)\]/)
+    if (!catMatch) throw new Error('vixcentral: month labels (mx) not found in HTML')
+    const months = catMatch[1].match(/'([^']+)'/g).map(m => m.replace(/'/g, ''))
 
-    const quoteArr = Array.isArray(quotes) ? quotes : [quotes]
-    const bySymbol = Object.fromEntries(quoteArr.map(q => [q.symbol, q.last ?? q.close]))
+    // Live prices (Last column): var vcurve_data_var = [n, n, ...]
+    const liveMatch = html.match(/var\s+vcurve_data_var\s*=\s*\[([\d.,\s]*)\]/)
+    const livePrices = liveMatch && liveMatch[1].trim()
+      ? liveMatch[1].split(',').map(Number).filter(n => n > 0)
+      : []
 
-    // Map to ordered term structure: shortest to longest tenor
+    // Previous close fallback: var previous_close_var = [n, n, ...]
+    const prevMatch = html.match(/var\s+previous_close_var\s*=\s*\[([\d.,\s]+)\]/)
+    const prevPrices = prevMatch
+      ? prevMatch[1].split(',').map(Number)
+      : []
+
+    const prices = livePrices.length >= 4 ? livePrices : prevPrices
+    const source = livePrices.length >= 4 ? 'live' : 'prev-close'
+    if (prices.length === 0) throw new Error('vixcentral: no price data found')
+
     const contracts = {}
-    if (bySymbol['VIX1D'] != null) contracts['1D']  = +bySymbol['VIX1D'].toFixed(2)
-    if (bySymbol['VIX9D'] != null) contracts['9D']  = +bySymbol['VIX9D'].toFixed(2)
-    if (bySymbol['VIX']   != null) contracts['30D'] = +bySymbol['VIX'].toFixed(2)
-    if (bySymbol['VIX3M'] != null) contracts['3M']  = +bySymbol['VIX3M'].toFixed(2)
+    months.forEach((m, i) => {
+      if (i < prices.length && prices[i] > 0) contracts[m] = +prices[i].toFixed(4)
+    })
 
-    if (Object.keys(contracts).length < 2) throw new Error('Insufficient VIX quotes returned')
-    console.log('VIX term structure: fetched from Tradier', contracts)
+    if (Object.keys(contracts).length < 3) throw new Error(`vixcentral: only ${Object.keys(contracts).length} contracts parsed`)
+    console.log(`VX futures from vixcentral [${source}]:`, contracts)
     return contracts
   } catch (err) {
-    console.error(`VIX term structure fetch error: ${err.message}`)
+    console.error(`VX futures fetch error: ${err.message}`)
     return null
   }
 }
@@ -184,12 +189,12 @@ function buildProbabilities(impliedRate, currentLow, currentHigh) {
 }
 
 // ─── POST handler (capture snapshots) ─────────────────────────────────────────
-async function handlePost(req, res, supabase, fredKey, tradierKey) {
+async function handlePost(req, res, supabase, fredKey) {
   try {
     const capturedAt = new Date().toISOString()
 
     const [vixContracts, fedResult] = await Promise.all([
-      fetchVixFutures(tradierKey),
+      fetchVixFutures(),
       fetchFedWatch(fredKey),
     ])
 
@@ -268,7 +273,6 @@ export default async function handler(req, res) {
   const url = process.env.SUPABASE_URL
   const sbKey = process.env.SUPABASE_SERVICE_ROLE_KEY
   const fredKey = process.env.FRED_KEY
-  const tradierKey = process.env.TRADIER_KEY
 
   if (!url || !sbKey) return res.status(500).json({ error: 'Supabase env not configured' })
 
@@ -280,7 +284,7 @@ export default async function handler(req, res) {
     if ((req.headers.authorization ?? '') !== `Bearer ${secret}`) {
       return res.status(401).json({ error: 'Unauthorized' })
     }
-    return handlePost(req, res, supabase, fredKey, tradierKey)
+    return handlePost(req, res, supabase, fredKey)
   }
 
   if (req.method === 'GET') return handleGet(req, res, supabase)
