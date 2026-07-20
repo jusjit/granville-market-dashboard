@@ -2,30 +2,54 @@ import { useState, useEffect } from 'react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { annotateEvents, fetchVolHistory } from '../lib/volsurface'
 
-// Series colors validated for dark surfaces (dataviz palette slots 1–2);
-// kink status colors from the fixed status palette.
 const C = {
-  spot: '#3987e5',      // blue — spot IV
-  forward: '#199e70',   // aqua — forward IV
-  kink: '#fab219',      // warning — kink detected
-  confirmed: '#d03b3b', // critical — kink confirmed by spot-into-forward
-  lowConf: '#898781',   // muted — low-confidence reading
+  spot: '#3987e5',
+  forward: '#199e70',
+  kink: '#fab219',
+  confirmed: '#d03b3b',
+  lowConf: '#898781',
   grid: '#2c2c2a',
   ink: '#898781',
+  event: '#6366f1',
 }
 
-function SpotDot({ cx, cy, payload }) {
+function SpotDot({ cx, cy, payload, onDotClick }) {
   if (cx == null || cy == null) return null
-  // Low-confidence readings render as a hollow grey dot regardless of kink state.
-  if (payload.lowConfidence) {
-    return <circle cx={cx} cy={cy} r={4} fill="none" stroke={C.lowConf} strokeWidth={1.5} strokeDasharray="2 1.5" />
+  const handleClick = (e) => {
+    e.stopPropagation()
+    onDotClick?.(payload.expiration)
   }
-  if (!payload.kink) return <circle cx={cx} cy={cy} r={3} fill={C.spot} />
+  if (payload.lowConfidence) {
+    return (
+      <g onClick={handleClick} style={{ cursor: 'pointer' }}>
+        <circle cx={cx} cy={cy} r={10} fill="transparent" />
+        <circle cx={cx} cy={cy} r={4} fill="none" stroke={C.lowConf} strokeWidth={1.5} strokeDasharray="2 1.5" />
+        {payload.events?.length > 0 && (
+          <circle cx={cx} cy={cy - 8} r={2} fill={C.event} />
+        )}
+      </g>
+    )
+  }
+  if (!payload.kink) {
+    return (
+      <g onClick={handleClick} style={{ cursor: 'pointer' }}>
+        <circle cx={cx} cy={cy} r={10} fill="transparent" />
+        <circle cx={cx} cy={cy} r={3} fill={C.spot} />
+        {payload.events?.length > 0 && (
+          <circle cx={cx} cy={cy - 8} r={2} fill={C.event} />
+        )}
+      </g>
+    )
+  }
   const color = payload.confirmed ? C.confirmed : C.kink
   return (
-    <g>
+    <g onClick={handleClick} style={{ cursor: 'pointer' }}>
+      <circle cx={cx} cy={cy} r={12} fill="transparent" />
       <circle cx={cx} cy={cy} r={6} fill={color} stroke="#1a1a19" strokeWidth={2} />
       <circle cx={cx} cy={cy} r={9} fill="none" stroke={color} strokeWidth={1} opacity={0.5} />
+      {payload.events?.length > 0 && (
+        <circle cx={cx} cy={cy - 12} r={2} fill={C.event} />
+      )}
     </g>
   )
 }
@@ -68,8 +92,23 @@ function VolTooltip({ active, payload, label }) {
 function toRows(surface) {
   return annotateEvents(surface.points, surface.events ?? []).map(p => ({
     ...p,
-    tick: p.expiration.slice(5) + (p.events.length ? ` ${p.events.join('/')}` : ''),
+    tick: p.expiration.slice(5),
   }))
+}
+
+function EventTick({ x, y, payload, data }) {
+  const point = data?.find(p => p.tick === payload?.value)
+  const hasEvents = point?.events?.length > 0
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <text x={0} y={0} dy={12} textAnchor="end" fill={C.ink} fontSize={10} transform="rotate(-35)">
+        {payload?.value}
+      </text>
+      {hasEvents && (
+        <circle cx={0} cy={22} r={2.5} fill={C.event} opacity={0.8} />
+      )}
+    </g>
+  )
 }
 
 function fmtTime(iso) {
@@ -84,9 +123,8 @@ export default function VolSurfacePanel({ data, loading, error }) {
   const [snapshots, setSnapshots] = useState([])
   const [selIdx, setSelIdx] = useState(0)
   const [histError, setHistError] = useState(null)
+  const [selectedExp, setSelectedExp] = useState(null)
 
-  // Snapshots are ordered newest-first from the API; reverse for the slider so
-  // left = oldest, right = newest.
   const ordered = [...snapshots].reverse()
 
   useEffect(() => {
@@ -94,7 +132,7 @@ export default function VolSurfacePanel({ data, loading, error }) {
       fetchVolHistory()
         .then(rows => {
           setSnapshots(rows)
-          setSelIdx(Math.max(0, rows.length - 1)) // default to most recent
+          setSelIdx(Math.max(0, rows.length - 1))
         })
         .catch(err => setHistError(err.message))
     }
@@ -119,9 +157,6 @@ export default function VolSurfacePanel({ data, loading, error }) {
   const viewingHistory = historyMode && ordered.length > 0
   const selected = viewingHistory ? ordered[Math.min(selIdx, ordered.length - 1)] : null
 
-  // Base curve is always LIVE. In history mode we OVERLAY the selected past
-  // snapshot's spot IV as a ghost line, merged by expiration so both render on
-  // the same axis (expiries that rolled off show only on one series).
   const liveRows = toRows(data)
   let points = liveRows
   if (viewingHistory && selected) {
@@ -136,6 +171,11 @@ export default function VolSurfacePanel({ data, loading, error }) {
   }
   const kinks = points.filter(p => p.kink)
   const lowConf = points.filter(p => p.lowConfidence)
+  const withEvents = points.filter(p => p.events?.length > 0)
+
+  const handleDotClick = (expiration) => {
+    setSelectedExp(prev => prev === expiration ? null : expiration)
+  }
 
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
@@ -202,11 +242,9 @@ export default function VolSurfacePanel({ data, loading, error }) {
             <CartesianGrid stroke={C.grid} strokeDasharray="3 3" vertical={false} />
             <XAxis
               dataKey="tick"
-              tick={{ fill: C.ink, fontSize: 10 }}
+              tick={<EventTick data={points} />}
               tickLine={false}
               axisLine={{ stroke: C.grid }}
-              angle={-35}
-              textAnchor="end"
               height={52}
               interval={0}
             />
@@ -225,7 +263,7 @@ export default function VolSurfacePanel({ data, loading, error }) {
               dataKey="spotIV"
               stroke={C.spot}
               strokeWidth={2}
-              dot={<SpotDot />}
+              dot={props => <SpotDot {...props} onDotClick={handleDotClick} />}
               activeDot={{ r: 5 }}
               isAnimationActive={false}
             />
@@ -257,6 +295,49 @@ export default function VolSurfacePanel({ data, loading, error }) {
         </ResponsiveContainer>
       </div>
 
+      {withEvents.length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-1.5">
+          {withEvents.map(p => (
+            <button
+              key={p.expiration}
+              onClick={() => handleDotClick(p.expiration)}
+              className={`px-1.5 py-0.5 rounded text-[10px] border transition-colors ${
+                selectedExp === p.expiration
+                  ? 'bg-indigo-950/50 border-indigo-700/60 text-indigo-200'
+                  : 'bg-slate-900/40 border-slate-800 text-slate-500 hover:text-slate-300 hover:border-slate-600'
+              }`}
+            >
+              {p.tick} ({p.events.length})
+            </button>
+          ))}
+        </div>
+      )}
+
+      {selectedExp && (() => {
+        const sp = points.find(p => p.expiration === selectedExp)
+        if (!sp?.events?.length) return (
+          <div className="mt-1.5 rounded-lg border border-slate-800 bg-slate-950/50 px-3 py-2 flex items-center justify-between">
+            <p className="text-[11px] text-slate-500">{selectedExp} — no events in this window</p>
+            <button onClick={() => setSelectedExp(null)} className="text-[10px] text-slate-600 hover:text-slate-400 ml-3">dismiss</button>
+          </div>
+        )
+        return (
+          <div className="mt-1.5 rounded-lg border border-indigo-900/50 bg-indigo-950/20 px-3 py-2">
+            <div className="flex items-center justify-between mb-1.5">
+              <p className="text-[11px] font-semibold text-indigo-300">Events before {sp.tick} expiry</p>
+              <button onClick={() => setSelectedExp(null)} className="text-[10px] text-slate-600 hover:text-slate-400">dismiss</button>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {sp.events.map(ev => (
+                <span key={ev} className="px-1.5 py-0.5 rounded text-[10px] bg-indigo-950/60 border border-indigo-800/40 text-indigo-200">
+                  {ev}
+                </span>
+              ))}
+            </div>
+          </div>
+        )
+      })()}
+
       <div className="flex items-center gap-4 mt-2 text-[10px] text-slate-500 flex-wrap">
         <span className="flex items-center gap-1.5">
           <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: C.kink }} />
@@ -270,7 +351,10 @@ export default function VolSurfacePanel({ data, loading, error }) {
           <span className="w-2.5 h-2.5 rounded-full inline-block border border-dashed" style={{ borderColor: C.lowConf }} />
           Low confidence — stale/wide/jumped
         </span>
-        <span className="ml-auto">Events: FOMC · NFP · CPI · PCE · JOLTS · ISM · UMich · Retail · Homes · earnings</span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: C.event }} />
+          Tap dot or date to see events
+        </span>
       </div>
     </div>
   )
