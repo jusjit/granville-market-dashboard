@@ -66,7 +66,7 @@ function VolTooltip({ active, payload, label }) {
 }
 
 function toRows(surface) {
-  return annotateEvents(surface.points).map(p => ({
+  return annotateEvents(surface.points, surface.events ?? []).map(p => ({
     ...p,
     tick: p.expiration.slice(5) + (p.events.length ? ` ${p.events.join('/')}` : ''),
   }))
@@ -270,7 +270,7 @@ export default function VolSurfacePanel({ data, loading, error }) {
           <span className="w-2.5 h-2.5 rounded-full inline-block border border-dashed" style={{ borderColor: C.lowConf }} />
           Low confidence — stale/wide/jumped
         </span>
-        <span className="ml-auto">Events hardcoded 2026: FOMC · NFP · CPI</span>
+        <span className="ml-auto">Events: FOMC · NFP · CPI · mega-cap earnings (FRED / Finnhub)</span>
       </div>
     </div>
   )
