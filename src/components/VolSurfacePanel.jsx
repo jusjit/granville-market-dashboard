@@ -270,7 +270,7 @@ export default function VolSurfacePanel({ data, loading, error }) {
           <span className="w-2.5 h-2.5 rounded-full inline-block border border-dashed" style={{ borderColor: C.lowConf }} />
           Low confidence — stale/wide/jumped
         </span>
-        <span className="ml-auto">Events: FOMC · NFP · CPI · mega-cap earnings (FRED / Finnhub)</span>
+        <span className="ml-auto">Events: FOMC · NFP · CPI · PCE · JOLTS · ISM · UMich · Retail · Homes · earnings</span>
       </div>
     </div>
   )

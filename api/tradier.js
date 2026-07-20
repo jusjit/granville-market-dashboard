@@ -8,12 +8,27 @@ const EARNINGS_TICKERS = new Set([
   'UNH','JPM','V','JNJ','XOM','PG','MA','HD','AVGO','LLY','MRK',
 ])
 
-// FOMC decision dates — Fed publishes years ahead; no FRED release for meeting days.
-// Only need ~12 months from today; the FRED releases cover CPI/NFP dynamically.
+// Hardcoded calendars — these orgs publish schedules years ahead but have no FRED release.
 const FOMC_DATES = [
   '2026-07-29','2026-09-16','2026-10-28','2026-12-09',
   '2027-01-27','2027-03-17','2027-04-28','2027-06-16',
   '2027-07-28','2027-09-15','2027-10-27','2027-12-08',
+]
+
+// ISM Manufacturing PMI — 1st business day of month (ismworld.org)
+const ISM_MFG_DATES = [
+  '2026-08-03','2026-09-01','2026-10-01','2026-11-02','2026-12-01',
+  '2027-01-04','2027-02-01','2027-03-01','2027-04-01','2027-05-03',
+  '2027-06-01','2027-07-01','2027-08-02','2027-09-01','2027-10-01',
+  '2027-11-01','2027-12-01',
+]
+
+// ISM Services PMI — 3rd business day of month (ismworld.org)
+const ISM_SVC_DATES = [
+  '2026-08-05','2026-09-03','2026-10-05','2026-11-04','2026-12-03',
+  '2027-01-06','2027-02-03','2027-03-03','2027-04-05','2027-05-05',
+  '2027-06-03','2027-07-06','2027-08-04','2027-09-03','2027-10-05',
+  '2027-11-03','2027-12-03',
 ]
 
 async function fetchEventCalendar(fredKey, finnhubKey) {
@@ -21,18 +36,29 @@ async function fetchEventCalendar(fredKey, finnhubKey) {
   const horizon = new Date(Date.now() + 75 * 86400000).toISOString().slice(0, 10)
   const events = []
 
-  // FOMC dates (hardcoded — FRED doesn't expose meeting dates as a release)
-  for (const d of FOMC_DATES) {
-    if (d >= today && d <= horizon) events.push({ date: d, label: 'FOMC' })
+  const hardcoded = [
+    [FOMC_DATES, 'FOMC'],
+    [ISM_MFG_DATES, 'ISM-M'],
+    [ISM_SVC_DATES, 'ISM-S'],
+  ]
+  for (const [dates, label] of hardcoded) {
+    for (const d of dates) {
+      if (d >= today && d <= horizon) events.push({ date: d, label })
+    }
   }
 
   const fetches = []
 
-  // FRED: CPI (release_id=10) and NFP (release_id=50)
+  // FRED economic release calendars
   if (fredKey) {
     const fredReleases = [
       { id: 10, label: 'CPI' },
       { id: 50, label: 'NFP' },
+      { id: 9,  label: 'Retail' },
+      { id: 54, label: 'PCE' },
+      { id: 91, label: 'UMich' },
+      { id: 192, label: 'JOLTS' },
+      { id: 291, label: 'Homes' },
     ]
     for (const rel of fredReleases) {
       fetches.push(
