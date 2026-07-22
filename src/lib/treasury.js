@@ -1,16 +1,22 @@
 const BASE = 'https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/accounting/od/auctions_query'
 
+const MARKET_MOVING_TERMS = new Set([
+  '2-Year', '3-Year', '5-Year', '7-Year', '10-Year', '20-Year', '30-Year',
+])
+
 export async function fetchTreasuryAuctions() {
-  const url = `${BASE}?sort=-auction_date&page[size]=40&filter=auction_date:gte:${sixtyDaysAgo()}`
+  const url = `${BASE}?sort=-auction_date&page[size]=80&filter=security_type:in:(Note,Bond),auction_date:gte:${ninetyDaysAgo()}`
   const res = await fetch(url)
   if (!res.ok) throw new Error(`Treasury: HTTP ${res.status}`)
   const json = await res.json()
-  return (json.data ?? []).map(normalize)
+  return (json.data ?? [])
+    .filter(r => MARKET_MOVING_TERMS.has(r.security_term))
+    .map(normalize)
 }
 
-function sixtyDaysAgo() {
+function ninetyDaysAgo() {
   const d = new Date()
-  d.setDate(d.getDate() - 60)
+  d.setDate(d.getDate() - 90)
   return d.toISOString().slice(0, 10)
 }
 

@@ -1,12 +1,3 @@
-const TYPE_ABBR = {
-  Bill: 'Bill',
-  Note: 'Note',
-  Bond: 'Bond',
-  TIPS: 'TIPS',
-  FRN: 'FRN',
-  'CMB': 'CMB',
-}
-
 function tailColor(tail) {
   if (tail == null) return 'text-slate-500'
   const bp = tail * 100
@@ -25,7 +16,7 @@ function btcColor(btc) {
 
 function fmtDate(iso) {
   if (!iso) return ''
-  const [y, m, d] = iso.split('-')
+  const [, m, d] = iso.split('-')
   return `${m}/${d}`
 }
 
@@ -38,11 +29,7 @@ function fmtAmt(amt) {
 
 function termAbbr(term) {
   if (!term) return ''
-  return term
-    .replace('-Week', 'W')
-    .replace('-Day', 'D')
-    .replace('-Month', 'M')
-    .replace('-Year', 'Y')
+  return term.replace('-Year', 'Y').replace('-Month', 'M')
 }
 
 export default function TreasuryAuctionPanel({ data, loading, error }) {
@@ -62,119 +49,57 @@ export default function TreasuryAuctionPanel({ data, loading, error }) {
   }
   if (!data?.length) return null
 
-  const coupons = data.filter(a => a.securityType !== 'Bill')
-  const bills = data.filter(a => a.securityType === 'Bill')
-
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
       <p className="text-xs text-slate-500 mb-3">
-        Recent Treasury Auctions · TreasuryDirect · last 60 days
+        Market-moving coupon auctions · 2Y 3Y 5Y 7Y 10Y 20Y 30Y · TreasuryDirect
       </p>
-
-      {coupons.length > 0 && (
-        <div className="mb-3">
-          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
-            Notes, Bonds & TIPS ({coupons.length})
-          </p>
-          <div className="overflow-x-auto">
-            <table className="w-full text-[11px]">
-              <thead>
-                <tr className="text-slate-600 text-left">
-                  <th className="pb-1 pr-2 font-medium">Date</th>
-                  <th className="pb-1 pr-2 font-medium">Type</th>
-                  <th className="pb-1 pr-2 font-medium">Term</th>
-                  <th className="pb-1 pr-2 font-medium text-right">Size</th>
-                  <th className="pb-1 pr-2 font-medium text-right">High Yield</th>
-                  <th className="pb-1 pr-2 font-medium text-right">Tail</th>
-                  <th className="pb-1 pr-2 font-medium text-right">Bid/Cover</th>
-                  <th className="pb-1 pr-2 font-medium text-right">Direct</th>
-                  <th className="pb-1 pr-2 font-medium text-right">Indirect</th>
-                  <th className="pb-1 font-medium text-right">Dealer</th>
-                </tr>
-              </thead>
-              <tbody>
-                {coupons.map((a, i) => (
-                  <tr key={`${a.cusip}-${i}`} className="border-t border-slate-800/40 hover:bg-slate-800/20">
-                    <td className="py-1 pr-2 text-slate-400 font-mono">{fmtDate(a.auctionDate)}</td>
-                    <td className="py-1 pr-2 text-slate-300">{TYPE_ABBR[a.securityType] ?? a.securityType}</td>
-                    <td className="py-1 pr-2 text-slate-300 font-mono">{termAbbr(a.securityTerm)}</td>
-                    <td className="py-1 pr-2 text-slate-400 text-right font-mono">{fmtAmt(a.offeringAmt)}</td>
-                    <td className="py-1 pr-2 text-slate-200 text-right font-mono">
-                      {a.highYield != null ? `${a.highYield.toFixed(3)}%` : '—'}
-                    </td>
-                    <td className={`py-1 pr-2 text-right font-mono ${tailColor(a.tail)}`}>
-                      {a.tail != null ? `${a.tail > 0 ? '+' : ''}${(a.tail * 100).toFixed(1)}bp` : '—'}
-                    </td>
-                    <td className={`py-1 pr-2 text-right font-mono ${btcColor(a.bidToCover)}`}>
-                      {a.bidToCover != null ? `${a.bidToCover.toFixed(2)}x` : '—'}
-                    </td>
-                    <td className="py-1 pr-2 text-slate-400 text-right font-mono">
-                      {a.directPct != null ? `${a.directPct}%` : '—'}
-                    </td>
-                    <td className="py-1 pr-2 text-slate-400 text-right font-mono">
-                      {a.indirectPct != null ? `${a.indirectPct}%` : '—'}
-                    </td>
-                    <td className="py-1 text-slate-400 text-right font-mono">
-                      {a.dealerPct != null ? `${a.dealerPct}%` : '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {bills.length > 0 && (
-        <div>
-          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
-            Bills ({bills.length})
-          </p>
-          <div className="overflow-x-auto">
-            <table className="w-full text-[11px]">
-              <thead>
-                <tr className="text-slate-600 text-left">
-                  <th className="pb-1 pr-2 font-medium">Date</th>
-                  <th className="pb-1 pr-2 font-medium">Term</th>
-                  <th className="pb-1 pr-2 font-medium text-right">Size</th>
-                  <th className="pb-1 pr-2 font-medium text-right">High Yield</th>
-                  <th className="pb-1 pr-2 font-medium text-right">Bid/Cover</th>
-                  <th className="pb-1 pr-2 font-medium text-right">Direct</th>
-                  <th className="pb-1 pr-2 font-medium text-right">Indirect</th>
-                  <th className="pb-1 font-medium text-right">Dealer</th>
-                </tr>
-              </thead>
-              <tbody>
-                {bills.map((a, i) => (
-                  <tr key={`${a.cusip}-${i}`} className="border-t border-slate-800/40 hover:bg-slate-800/20">
-                    <td className="py-1 pr-2 text-slate-400 font-mono">{fmtDate(a.auctionDate)}</td>
-                    <td className="py-1 pr-2 text-slate-300 font-mono">{termAbbr(a.securityTerm)}</td>
-                    <td className="py-1 pr-2 text-slate-400 text-right font-mono">{fmtAmt(a.offeringAmt)}</td>
-                    <td className="py-1 pr-2 text-slate-200 text-right font-mono">
-                      {a.highYield != null ? `${a.highYield.toFixed(3)}%` : '—'}
-                    </td>
-                    <td className={`py-1 pr-2 text-right font-mono ${btcColor(a.bidToCover)}`}>
-                      {a.bidToCover != null ? `${a.bidToCover.toFixed(2)}x` : '—'}
-                    </td>
-                    <td className="py-1 pr-2 text-slate-400 text-right font-mono">
-                      {a.directPct != null ? `${a.directPct}%` : '—'}
-                    </td>
-                    <td className="py-1 pr-2 text-slate-400 text-right font-mono">
-                      {a.indirectPct != null ? `${a.indirectPct}%` : '—'}
-                    </td>
-                    <td className="py-1 text-slate-400 text-right font-mono">
-                      {a.dealerPct != null ? `${a.dealerPct}%` : '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
+      <div className="overflow-x-auto">
+        <table className="w-full text-[11px]">
+          <thead>
+            <tr className="text-slate-600 text-left">
+              <th className="pb-1 pr-2 font-medium">Date</th>
+              <th className="pb-1 pr-2 font-medium">Term</th>
+              <th className="pb-1 pr-2 font-medium text-right">Size</th>
+              <th className="pb-1 pr-2 font-medium text-right">High Yield</th>
+              <th className="pb-1 pr-2 font-medium text-right">Tail</th>
+              <th className="pb-1 pr-2 font-medium text-right">Bid/Cover</th>
+              <th className="pb-1 pr-2 font-medium text-right">Direct</th>
+              <th className="pb-1 pr-2 font-medium text-right">Indirect</th>
+              <th className="pb-1 font-medium text-right">Dealer</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((a, i) => (
+              <tr key={`${a.cusip}-${i}`} className="border-t border-slate-800/40 hover:bg-slate-800/20">
+                <td className="py-1 pr-2 text-slate-400 font-mono">{fmtDate(a.auctionDate)}</td>
+                <td className="py-1 pr-2 text-slate-300 font-mono">{termAbbr(a.securityTerm)}</td>
+                <td className="py-1 pr-2 text-slate-400 text-right font-mono">{fmtAmt(a.offeringAmt)}</td>
+                <td className="py-1 pr-2 text-slate-200 text-right font-mono">
+                  {a.highYield != null ? `${a.highYield.toFixed(3)}%` : '—'}
+                </td>
+                <td className={`py-1 pr-2 text-right font-mono ${tailColor(a.tail)}`}>
+                  {a.tail != null ? `${a.tail > 0 ? '+' : ''}${(a.tail * 100).toFixed(1)}bp` : '—'}
+                </td>
+                <td className={`py-1 pr-2 text-right font-mono ${btcColor(a.bidToCover)}`}>
+                  {a.bidToCover != null ? `${a.bidToCover.toFixed(2)}x` : '—'}
+                </td>
+                <td className="py-1 pr-2 text-slate-400 text-right font-mono">
+                  {a.directPct != null ? `${a.directPct}%` : '—'}
+                </td>
+                <td className="py-1 pr-2 text-slate-400 text-right font-mono">
+                  {a.indirectPct != null ? `${a.indirectPct}%` : '—'}
+                </td>
+                <td className="py-1 text-slate-400 text-right font-mono">
+                  {a.dealerPct != null ? `${a.dealerPct}%` : '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       <p className="text-[9px] text-slate-600 mt-2">
-        Tail = high yield − median yield (positive = weak demand). Bid/Cover ≥ 2.8 = strong.
+        Tail = high yield − median yield (positive = weak). Bid/Cover ≥ 2.8 = strong. Updates automatically with each monthly auction.
       </p>
     </div>
   )
