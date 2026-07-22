@@ -118,7 +118,7 @@ function fmtTime(iso) {
   })
 }
 
-export default function VolSurfacePanel({ data, loading, error }) {
+export default function VolSurfacePanel({ data, loading, error, onRefresh }) {
   const [historyMode, setHistoryMode] = useState(false)
   const [snapshots, setSnapshots] = useState([])
   const [selIdx, setSelIdx] = useState(0)
@@ -183,16 +183,27 @@ export default function VolSurfacePanel({ data, loading, error }) {
         <p className="text-xs text-slate-500">
           SPX ATM implied vol term structure · spot {data.spot?.toFixed(2)} · Tradier/ORATS · SPXW
         </p>
-        <button
-          onClick={() => setHistoryMode(v => !v)}
-          className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${
-            historyMode
-              ? 'text-indigo-300 bg-indigo-950/40 border-indigo-800/60'
-              : 'text-slate-500 bg-slate-900/40 border-slate-800 hover:text-slate-300'
-          }`}
-        >
-          {historyMode ? '● Comparing snapshot' : 'Compare snapshot'}
-        </button>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setHistoryMode(v => !v)}
+            className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${
+              historyMode
+                ? 'text-indigo-300 bg-indigo-950/40 border-indigo-800/60'
+                : 'text-slate-500 bg-slate-900/40 border-slate-800 hover:text-slate-300'
+            }`}
+          >
+            {historyMode ? '● Comparing snapshot' : 'Compare snapshot'}
+          </button>
+          {onRefresh && (
+            <button
+              onClick={onRefresh}
+              disabled={loading}
+              className="text-[10px] px-2 py-0.5 rounded border border-slate-800 bg-slate-900/40 text-slate-500 hover:text-slate-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {loading ? 'Refreshing…' : 'Refresh'}
+            </button>
+          )}
+        </div>
       </div>
 
       {historyMode && (

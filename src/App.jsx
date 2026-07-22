@@ -255,7 +255,13 @@ export default function App() {
           <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">
             Vol Surface
           </h2>
-          <VolSurfacePanel data={volData} loading={volLoading} error={volError} />
+          <VolSurfacePanel data={volData} loading={volLoading} error={volError} onRefresh={() => {
+            setVolLoading(true)
+            setVolError(null)
+            fetchVolSurface()
+              .then(d => { setVolData(d); setVolLoading(false) })
+              .catch(err => { setVolError(err.message); setVolLoading(false) })
+          }} />
         </section>
 
         {/* Reference Data — VIX Futures + CME FedWatch (collapsible) */}
