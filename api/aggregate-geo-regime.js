@@ -586,8 +586,34 @@ async function insertRunRecord({ runType, verdict, inputHash, errors, diff, toke
   } catch (e) { return e.message }
 }
 
+async function handleReadOnly(res) {
+  const c = sb()
+  if (!c) return res.status(500).json({ error: 'Supabase not configured' })
+  try {
+    const limit = 10
+    const [runsRes, signalsRes, regimeRes] = await Promise.all([
+      fetch(`${c.url}/rest/v1/geo_regime_runs?select=id,evaluated_at,run_type,flagged,confidence,risk_category,categories_considered,categories_dismissed_reason,verdict,diff,token_usage,source_errors&order=evaluated_at.desc&limit=${limit}`, { headers: c.headers }),
+      fetch(`${c.url}/rest/v1/geopolitical_signals?select=*&order=severity.desc`, { headers: c.headers }),
+      fetch(`${c.url}/rest/v1/current_regime?select=*&limit=1`, { headers: c.headers }),
+    ])
+    const [runs, signals, regime] = await Promise.all([
+      runsRes.ok ? runsRes.json() : [],
+      signalsRes.ok ? signalsRes.json() : [],
+      regimeRes.ok ? regimeRes.json() : [],
+    ])
+    res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=120')
+    return res.status(200).json({ runs, signals, regime: regime[0] ?? null })
+  } catch (err) {
+    return res.status(500).json({ error: err.message })
+  }
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'GET' && req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
+
+  // Unauthenticated GET = read-only regime data for the dashboard frontend
+  if (req.method === 'GET' && !req.headers.authorization) return handleReadOnly(res)
+
   const secret = process.env.SNAPSHOT_SECRET
   if (!secret) return res.status(500).json({ error: 'SNAPSHOT_SECRET not configured' })
   if (req.headers.authorization !== `Bearer ${secret}`) return res.status(401).json({ error: 'Unauthorized' })

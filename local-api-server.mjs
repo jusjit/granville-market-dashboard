@@ -93,6 +93,9 @@ const server = http.createServer(async (nodeReq, nodeRes) => {
     } else if (url.pathname === '/api/synthesis') {
       const { default: handler } = await import(`./api/synthesis.js?t=${Date.now()}`)
       await handler(req, res)
+    } else if (url.pathname === '/api/aggregate-geo-regime') {
+      const { default: handler } = await import(`./api/aggregate-geo-regime.js?t=${Date.now()}`)
+      await handler(req, res)
     } else {
       res.status(404).json({ error: 'not found' })
     }

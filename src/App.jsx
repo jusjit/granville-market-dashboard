@@ -9,10 +9,13 @@ import VolSurfacePanel from './components/VolSurfacePanel'
 import { fetchVolSurface } from './lib/volsurface'
 import ReferenceDataPanel from './components/ReferenceDataPanel'
 import { fetchReferenceLatest } from './lib/referencedata'
+import GeoRegimePanel from './components/GeoRegimePanel'
+import { fetchGeoRegime } from './lib/georegime'
 
 import LoginGate from './components/LoginGate'
 
 const SHOW_ALMA = import.meta.env.VITE_SHOW_ALMA === 'true'
+const SHOW_GEO = import.meta.env.VITE_SHOW_GEO_REGIME === 'true'
 import Header from './components/Header'
 import ScoreGauge from './components/ScoreGauge'
 import SignalCard from './components/SignalCard'
@@ -49,6 +52,10 @@ export default function App() {
   const [referenceLoading, setReferenceLoading] = useState(false)
   const [referenceError, setReferenceError] = useState(null)
 
+  const [geoData, setGeoData] = useState(null)
+  const [geoLoading, setGeoLoading] = useState(false)
+  const [geoError, setGeoError] = useState(null)
+
   const [loading, setLoading] = useState(false)
   const [lastUpdated, setLastUpdated] = useState(null)
   const [error, setError] = useState(null)
@@ -81,6 +88,15 @@ export default function App() {
     fetchReferenceLatest()
       .then(data => { setReferenceData(data); setReferenceLoading(false) })
       .catch(err => { setReferenceError(err.message); setReferenceLoading(false) })
+
+    // Geo regime — recent runs + active signals, non-blocking
+    if (SHOW_GEO) {
+      setGeoLoading(true)
+      setGeoError(null)
+      fetchGeoRegime()
+        .then(data => { setGeoData(data); setGeoLoading(false) })
+        .catch(err => { setGeoError(err.message); setGeoLoading(false) })
+    }
 
     try {
       // Fetch Granville and Macro in parallel
@@ -244,6 +260,11 @@ export default function App() {
 
         {/* Reference Data — VIX Futures + CME FedWatch (collapsible) */}
         <ReferenceDataPanel data={referenceData} loading={referenceLoading} error={referenceError} />
+
+        {/* Geo Regime — LLM geopolitical signal aggregator (private dashboard only) */}
+        {SHOW_GEO && (
+          <GeoRegimePanel data={geoData} loading={geoLoading} error={geoError} />
+        )}
 
         {/* Section 5 — Alma Centroid (private dashboard only) */}
         {SHOW_ALMA && (
