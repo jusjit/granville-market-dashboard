@@ -37,9 +37,7 @@ Open **http://localhost:5173**. Vite proxies `/api/*` to port 3001 via `vite.con
 Env vars on BOTH (no VITE_ prefix — server-side only): `FINNHUB_KEY`, `FRED_KEY`, `ONEMIN_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `TRADIER_KEY`, `INGEST_SECRET`.
 Private project ONLY: `VITE_SHOW_ALMA=true` (its absence hides Alma on public).
 
-**Planned**: `VITE_SHOW_GEO_REGIME=true`, private project only, same on/off pattern as
-`VITE_SHOW_ALMA` — for the not-yet-shipped Geo Regime tab (see "Geo Regime Panel (WIP)" below).
-Not set anywhere yet; the panel isn't wired into `App.jsx` so the flag would currently do nothing.
+Private project ONLY (in addition to `VITE_SHOW_ALMA`): `VITE_SHOW_GEO_REGIME=true` — enables the collapsible Geo Regime panel. Same on/off pattern as Alma.
 
 ## Supabase (project "LalliChaths", https://oteatsbkdamvczdceion.supabase.co)
 Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX/VIX OHLC + gaps), `rules` (12 rules, **schema v2** — see below), `dashboard_snapshots` (twice-daily Granville+macro), `synthesis_cache` (id=1, AI synthesis 2h cache), `vol_surface_snapshots` (2-hourly vol term structure for history slider), `vix_futures_snapshots` (4-hourly VX monthly futures prices), `fed_watch_snapshots` (4-hourly CME FedWatch probabilities).
@@ -169,10 +167,10 @@ Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX
 3. **7 Granville Signal Cards** — green/yellow/red
 4. **Granville Signal Log** — plain-English bullet log
 5. **Macro Conditions** — slate cards, descriptive only (not scored)
-6. **Vol Surface** — SPX term structure, Tradier/ORATS options data
+6. **Vol Surface** — SPX term structure, Tradier/ORATS options data. Has its own Refresh button (re-fetches live data without refreshing the full dashboard) + Compare snapshot toggle for historical overlay.
 7. **VIX Futures & Fed Rate %** — collapsible; VX monthly futures (vixcentral/CBOE delayed) + CME FedWatch (ZQ futures/FRED). Snapshot slider for historical comparison. Populated by 4-hourly cron.
-8. **Alma Centroid** — private dashboard only (`VITE_SHOW_ALMA=true`)
-9. **Geo Regime** — PLANNED, private dashboard only. See "Geo Regime Panel (WIP)" below.
+8. **Geo Regime** — collapsible, private dashboard only (`VITE_SHOW_GEO_REGIME=true`). Three sections: Regime Summary (severity tiles per implication type derived from all signals), Monitored Signals (5 seed signals with category/state/implication), Recent Runs (10 expandable cards showing LLM synthesis, considered/excluded categories with reasoning, diff, token usage). Data from unauthenticated GET on `/api/aggregate-geo-regime`.
+9. **Alma Centroid** — private dashboard only (`VITE_SHOW_ALMA=true`)
 
 ## Vercel Function Count (Hobby plan limit: 12)
 Current count: **11 JS + 1 Python = 12 total** (at the limit).
@@ -388,51 +386,38 @@ Fixes (in `THRESHOLDS`, `HYSTERESIS_CATEGORIES`, `resolveGatedDiff()`,
   extending hysteresis to more categories — not reflexively, only where
   production data shows real noise (same discipline as this pass).
 
-### Geo Regime Panel (WIP — scaffolded 2026-07-11, NOT shipped)
+### Geo Regime Panel (shipped 2026-07-22)
 
-This will eventually be dashboard section 7, **private project only** (same
-`VITE_SHOW_*` pattern as Alma) — a tab surfacing the regime state the aggregator
-above writes to Supabase. Currently in the **data-validation phase**: watching the
-aggregator's real output for a while before finishing the UI. Do not assume this
-tab exists in the deployed app — it does not.
+Collapsible panel on private dashboard (`VITE_SHOW_GEO_REGIME=true`), renders
+between Reference Data and Alma. Three sections:
+1. **Regime Summary** — severity tiles per implication type (Oil Shock, Carry
+   Unwind, Equity Drawdown, Safe Haven, Freight Shock) with escalating count.
+   Derived client-side from all `geopolitical_signals` rows (the `current_regime`
+   Supabase view returns null due to PostgREST permissions — client derivation
+   is the workaround).
+2. **Monitored Signals** — the 5 seed signals (non-`llm-*` slugs: Hormuz,
+   Bab el-Mandeb, Taiwan, BOJ, Semis) as compact cards with category, state,
+   and market implication. LLM-generated `AI flag:` signals are rolled into
+   the regime summary severity tiles rather than listed individually.
+3. **Recent Runs** — 10 expandable cards showing run type (full-scan/gated-
+   triggered/gated-skip), flagged status, synthesis (verdict reasoning +
+   transmission chain + confidence), what changed (diff keys), considered
+   categories, excluded categories with per-category reasoning, token usage,
+   and source errors.
 
-**Status**: scaffolded on local branch `wip/geo-regime-panel` (based on `main`,
-not merged, not pushed to origin — exists only in this local clone until someone
-decides to finish it). `main` / deployed `git log` will NOT show these files.
+**Files**:
+- `api/aggregate-geo-regime.js` — unauthenticated GET returns read-only regime
+  data (10 runs, all signals, current_regime view). Same file as the cron
+  POST handler (no extra Vercel function).
+- `src/lib/georegime.js` — client fetch wrapper.
+- `src/components/GeoRegimePanel.jsx` — collapsible panel component.
+- `src/App.jsx` — wired with `SHOW_GEO` flag, `geoData`/`geoLoading`/`geoError`
+  state, fetched on `refresh()`.
 
-**What's there** (on that branch):
-- `api/geo-regime.js` — read-only endpoint, same service-role Supabase pattern as
-  `api/alma.js`. Reads `current_regime`, all `geopolitical_signals`, and the 20
-  most recent `geo_regime_runs`. Tested against live data.
-- `src/lib/georegime.js` — client fetch wrapper mirroring `lib/alma.js`.
-- `src/components/GeoRegimePanel.jsx` — draft component styled after `AlmaPanel.jsx`.
-
-**Confirmed NOT wired**: nothing on `main` imports any of the three files above;
-`App.jsx` has no `GeoRegimePanel`/`fetchGeoRegime` reference. Re-verify with
-`grep -rln "GeoRegimePanel\|fetchGeoRegime" src/App.jsx` before assuming otherwise —
-this note will go stale the moment someone starts wiring it in.
-
-**Still to decide before shipping** (TODOs live inline in the component too):
-1. Field selection — `geopolitical_signals.notes` is often 1000+ chars of LLM
-   prose; `categories_dismissed_reason` (arguably the most useful part — a
-   labeled reason for every non-flagged category, every run) isn't surfaced at
-   all yet, just a count of the latest run's `categories_considered`.
-2. Fetch cadence — regime updates ~every 4h via cron; don't refetch on every
-   `App.jsx` `refresh()` the way Alma/synthesis do (wasted requests against
-   data that hasn't changed).
-3. Layout/styling — severity color thresholds are a first guess, untuned.
-4. Wiring — add `VITE_SHOW_GEO_REGIME` env flag, add state/effects in `App.jsx`
-   mirroring `almaData`/`almaLoading`/`almaError`, decide render position
-   relative to Alma/Vol Surface panels.
-
-To resume: `git checkout wip/geo-regime-panel` (or cherry-pick the 3 files onto
-a fresh branch off current `main`, since `main` will have moved on).
-- Cron: `.github/workflows/geo-regime-aggregator.yml` — every 4h + workflow_dispatch,
-  reuses the `SNAPSHOT_SECRET` GitHub secret
-- Supabase schema/grants SQL: `../geo-monitor-scaffold/*.sql` (all applied, incl. geo_regime_runs 2026-07-11)
-- Related: worldmonitor clone at `../worldmonitor` (branch `geo-variant`) has the
-  personal `geo` dashboard variant (`npm run dev:geo`); its Market Implications panel
-  reads `geopolitical_signals` via anon key in its `.env.local`
+**Related infrastructure** (unchanged):
+- Cron: `.github/workflows/geo-regime-aggregator.yml` — every 4h + workflow_dispatch
+- Supabase schema: `../geo-monitor-scaffold/*.sql` (all applied)
+- worldmonitor clone: `../worldmonitor` (branch `geo-variant`)
 
 ## Known Limitations & Gotchas
 - **Finnhub free tier**: No CBOE indices (`^VIX`), no MOVE index. Use ETF proxies.
