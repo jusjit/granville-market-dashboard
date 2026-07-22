@@ -3,11 +3,11 @@
 // signal states change.
 const CACHE_TTL_MS = 2 * 60 * 60 * 1000 // 2 hours
 
-async function cacheRead() {
+async function cacheRead(id = 1) {
   const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!url || !key) return null
   try {
-    const r = await fetch(`${url}/rest/v1/synthesis_cache?id=eq.1&select=paragraph,input_hash,created_at`, {
+    const r = await fetch(`${url}/rest/v1/synthesis_cache?id=eq.${id}&select=paragraph,input_hash,created_at`, {
       headers: { apikey: key, Authorization: `Bearer ${key}` },
     })
     if (!r.ok) return null
@@ -16,7 +16,7 @@ async function cacheRead() {
   } catch { return null }
 }
 
-async function cacheWrite(paragraph, inputHash) {
+async function cacheWrite(paragraph, inputHash, id = 1) {
   const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!url || !key) return
   try {
@@ -26,7 +26,7 @@ async function cacheWrite(paragraph, inputHash) {
         apikey: key, Authorization: `Bearer ${key}`,
         'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates',
       },
-      body: JSON.stringify([{ id: 1, paragraph, input_hash: inputHash, created_at: new Date().toISOString() }]),
+      body: JSON.stringify([{ id, paragraph, input_hash: inputHash, created_at: new Date().toISOString() }]),
     })
   } catch { /* cache write failure is non-fatal */ }
 }
@@ -122,8 +122,67 @@ async function callOneMin(prompt, key) {
   }
 }
 
+// ── Treasury auction synthesis (id=2 in synthesis_cache) ──
+
+function hashTreasuryInputs(auctions) {
+  return JSON.stringify(auctions.map(a => `${a.auctionDate}:${a.cusip}`).sort())
+}
+
+function buildTreasuryPrompt(auctions) {
+  const lines = auctions.map(a => {
+    const tail = a.tail != null ? `${a.tail > 0 ? '+' : ''}${(a.tail * 100).toFixed(1)}bp tail` : 'no tail data'
+    const btc = a.bidToCover != null ? `${a.bidToCover.toFixed(2)}x bid/cover` : 'no bid/cover'
+    const indirect = a.indirectPct != null ? `${a.indirectPct}% indirect` : ''
+    const direct = a.directPct != null ? `${a.directPct}% direct` : ''
+    const size = a.offeringAmt != null ? `$${(a.offeringAmt / 1e9).toFixed(0)}B` : ''
+    const yld = a.highYield != null ? `${a.highYield.toFixed(3)}%` : 'pending'
+    return `  ${a.auctionDate} ${a.securityTerm}: ${yld}, ${tail}, ${btc}, ${indirect}, ${direct} ${size}`
+  }).join('\n')
+
+  return `You are a fixed-income analyst writing a brief for a macro trader. Summarize these recent US Treasury auction results in 2-3 sentences. Focus on:
+1. Demand quality (bid-to-cover ratios, tails — positive tail = weak, negative = strong)
+2. Foreign demand trends (indirect bidders = foreign central banks + institutions)
+3. Any notable shifts vs prior auctions of the same tenor
+
+Be specific with numbers. If a very recent auction has no results yet (pending), note it's upcoming. Write in plain prose, no bullets, no headers. Be concise — a trader reads this in 5 seconds.
+
+RECENT MARKET-MOVING TREASURY AUCTIONS (newest first):
+${lines}
+
+Write the summary now:`
+}
+
+async function handleTreasury(req, res) {
+  const key = process.env.ONEMIN_KEY
+  if (!key) return res.status(500).json({ error: 'ONEMIN_KEY not configured' })
+  let body
+  try { body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body }
+  catch { return res.status(400).json({ error: 'Invalid JSON body' }) }
+  const { auctions } = body
+  if (!auctions?.length) return res.status(400).json({ error: 'auctions array required' })
+
+  const currentHash = hashTreasuryInputs(auctions)
+  const cached = await cacheRead(2)
+  if (cached?.paragraph && cached.input_hash === currentHash) {
+    return res.status(200).json({ paragraph: cached.paragraph, cached: true })
+  }
+  const prompt = buildTreasuryPrompt(auctions)
+  try {
+    const { text: trimmed } = await callOneMin(prompt, key)
+    await cacheWrite(trimmed, currentHash, 2)
+    return res.status(200).json({ paragraph: trimmed, cached: false })
+  } catch (err) {
+    return res.status(500).json({ error: err.message })
+  }
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
+
+  // Route: POST /api/synthesis?type=treasury
+  const url = new URL(req.url, `http://${req.headers.host}`)
+  if (url.searchParams.get('type') === 'treasury') return handleTreasury(req, res)
+
   const key = process.env.ONEMIN_KEY
   if (!key) return res.status(500).json({ error: 'ONEMIN_KEY not configured' })
   let body

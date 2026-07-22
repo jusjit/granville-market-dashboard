@@ -1,3 +1,6 @@
+import { useState, useEffect } from 'react'
+import { fetchTreasurySynthesis } from '../lib/synthesis'
+
 function tailColor(tail) {
   if (tail == null) return 'text-slate-500'
   const bp = tail * 100
@@ -33,6 +36,17 @@ function termAbbr(term) {
 }
 
 export default function TreasuryAuctionPanel({ data, loading, error }) {
+  const [summary, setSummary] = useState(null)
+  const [summaryLoading, setSummaryLoading] = useState(false)
+
+  useEffect(() => {
+    if (!data?.length) return
+    setSummaryLoading(true)
+    fetchTreasurySynthesis(data)
+      .then(text => { setSummary(text); setSummaryLoading(false) })
+      .catch(() => setSummaryLoading(false))
+  }, [data])
+
   if (loading) {
     return (
       <div className="rounded-xl border border-slate-800 bg-slate-900/40 px-5 py-6 text-center text-sm text-slate-600 animate-pulse">
@@ -51,6 +65,14 @@ export default function TreasuryAuctionPanel({ data, loading, error }) {
 
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
+      {summaryLoading && (
+        <p className="text-[11px] text-slate-600 italic mb-3 animate-pulse">Generating AI summary…</p>
+      )}
+      {summary && (
+        <p className="text-[11px] text-slate-300 leading-relaxed mb-3 border-l-2 border-slate-700 pl-3">
+          {summary}
+        </p>
+      )}
       <p className="text-xs text-slate-500 mb-3">
         Market-moving coupon auctions · 2Y 3Y 5Y 7Y 10Y 20Y 30Y · TreasuryDirect
       </p>

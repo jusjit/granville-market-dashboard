@@ -40,7 +40,7 @@ Private project ONLY: `VITE_SHOW_ALMA=true` (its absence hides Alma on public).
 Private project ONLY (in addition to `VITE_SHOW_ALMA`): `VITE_SHOW_GEO_REGIME=true` — enables the collapsible Geo Regime panel. Same on/off pattern as Alma.
 
 ## Supabase (project "LalliChaths", https://oteatsbkdamvczdceion.supabase.co)
-Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX/VIX OHLC + gaps), `rules` (12 rules, **schema v2** — see below), `dashboard_snapshots` (twice-daily Granville+macro), `synthesis_cache` (id=1, AI synthesis 2h cache), `vol_surface_snapshots` (2-hourly vol term structure for history slider), `vix_futures_snapshots` (4-hourly VX monthly futures prices), `fed_watch_snapshots` (4-hourly CME FedWatch probabilities).
+Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX/VIX OHLC + gaps), `rules` (12 rules, **schema v2** — see below), `dashboard_snapshots` (twice-daily Granville+macro), `synthesis_cache` (id=1 main AI synthesis 2h cache, id=2 treasury auction summary hash-only cache), `vol_surface_snapshots` (2-hourly vol term structure for history slider), `vix_futures_snapshots` (4-hourly VX monthly futures prices), `fed_watch_snapshots` (4-hourly CME FedWatch probabilities).
 - RLS enabled, no policies — only service role key reads/writes.
 - `intraday_posts`/`weekly_posts`: unique constraint on `date`, identity ids (for webhook upserts).
 - Original data migrated from SQLite (`Alma backtest rules/` folder, gitignored).
@@ -70,6 +70,7 @@ Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX
 - Response path: `data.aiRecord.aiRecordDetail.resultObject[0]`
 - **Minto pyramid output**: prompt requires `Bottom line: …` / `Why:` bullets / `Session lean: …`. SynthesisPanel.jsx parses these into bold lead + bullet list + footer; falls back to plain paragraph if unstructured. Divergence warning forced in as a driver when active.
 - Persistent Supabase cache (`synthesis_cache` id=1), 2h TTL + input-hash invalidation. ~4–6 1min.ai calls/day.
+- **Treasury route** (`?type=treasury`): same function, routed by query param. Accepts `{ auctions }` body, hashes by `auctionDate:cusip`, caches in `synthesis_cache` id=2 (no TTL — only regenerates when auctions change). Prompt asks for 2-3 sentence fixed-income analyst brief on demand quality, foreign demand, and tenor shifts.
 - Note: 1min.ai sometimes returns em-dashes as mojibake — cosmetic, from their API encoding.
 
 ### CRITICAL: 1min.ai API format
@@ -167,7 +168,7 @@ Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX
 3. **7 Granville Signal Cards** — green/yellow/red
 4. **Granville Signal Log** — plain-English bullet log
 5. **Macro Conditions** — slate cards, descriptive only (not scored)
-6. **Treasury Auctions** — recent auction results (last 60 days) from Fiscal Data API (`api.fiscaldata.treasury.gov`). No API key, no serverless function — fetches directly from the browser. Two tables: notes/bonds/TIPS (with tail in bp) and bills. Shows date, type, term, offering size, high yield, tail, bid-to-cover, direct/indirect/dealer bidder splits.
+6. **Treasury Auctions** — market-moving coupon auctions (2Y 3Y 5Y 7Y 10Y 20Y 30Y) from Fiscal Data API (`api.fiscaldata.treasury.gov`). No API key, no serverless function — fetches directly from the browser. Single compact table: date, term, size, high yield, tail (bp, color-coded), bid-to-cover (color-coded), direct/indirect/dealer %. Topped by an **AI summary** (gemini-2.5-flash via 1min.ai) that only regenerates when new auction data appears (hash-based cache in `synthesis_cache` id=2, no TTL). Summary focuses on demand quality, foreign demand trends, and tenor-level shifts. Client sends auction data to `POST /api/synthesis?type=treasury` — same serverless function as the main synthesis, routed by query param.
 7. **Vol Surface** — SPX term structure, Tradier/ORATS options data. Has its own Refresh button (re-fetches live data without refreshing the full dashboard) + Compare snapshot toggle for historical overlay.
 8. **VIX Futures & Fed Rate %** — collapsible; VX monthly futures (vixcentral/CBOE delayed) + CME FedWatch (ZQ futures/FRED). Snapshot slider for historical comparison. Populated by 4-hourly cron.
 9. **Geo Regime** — collapsible, private dashboard only (`VITE_SHOW_GEO_REGIME=true`). Three sections: Regime Summary (severity tiles per implication type derived from all signals), Monitored Signals (5 seed signals with category/state/implication), Recent Runs (10 expandable cards showing LLM synthesis, considered/excluded categories with reasoning, diff, token usage). Data from unauthenticated GET on `/api/aggregate-geo-regime`.
