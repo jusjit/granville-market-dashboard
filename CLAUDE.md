@@ -273,10 +273,21 @@ App.jsx
 - **worldmonitor API auth**: needs browser User-Agent (Cloudflare 403 otherwise) and a
   `wms_` session token from `POST /api/wm-session` sent as `X-WorldMonitor-Key` for
   `/v1` gateway endpoints (401 otherwise)
-- Calls 1min.ai claude-sonnet-4-6 with an edge-detector prompt (flag >30% unpriced
-  risks); strict-JSON verdict. No API-level prompt-caching lever exists in 1min.ai's
-  `promptObject` schema (single flat `prompt` string, no `cache_control`/system
-  field) — checked 2026-07-12, ruled out.
+- **Model**: `gemini-2.5-flash` via 1min.ai (swapped from `claude-sonnet-4-6`
+  2026-07-16). ~8-13x cheaper in 1min.ai credit (~17-30K credit vs Sonnet's
+  ~180-250K per call), comparable analytical depth. No Claude Haiku available
+  on 1min.ai. gpt-4o-mini rejected for noticeably shallow output. `MODEL`
+  constant at the top of the file — change there to swap models.
+- **Retry + timeout**: single retry with 3s backoff (`callOneMin` wraps
+  `callOneMinOnce`). Each attempt capped at 120s via `AbortSignal.timeout`
+  (raised from 60s on 2026-07-21 after 3 double-timeout failures in one day —
+  gemini routinely needs 40-60s and intermittently exceeds 60s). `vercel.json`
+  sets `maxDuration: 300` for this function. Both workflow yml files have
+  `curl --max-time 280`.
+- Edge-detector prompt (flag >30% unpriced risks); strict-JSON verdict.
+  Prompt explicitly specifies INTEGER 0-100 for confidence and
+  alma_reversion_confidence (gemini was returning 0-1 scale without this).
+  No API-level prompt-caching lever in 1min.ai — checked 2026-07-12.
 - flagged=true → upsert `geopolitical_signals` (history trigger appends transitions);
   `current_regime` VIEW is what the dashboard will eventually read as a gate/weight
   on Granville timing rules (never an entry signal). Cross-repo wiring is a future step.
