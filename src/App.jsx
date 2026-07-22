@@ -11,6 +11,8 @@ import ReferenceDataPanel from './components/ReferenceDataPanel'
 import { fetchReferenceLatest } from './lib/referencedata'
 import GeoRegimePanel from './components/GeoRegimePanel'
 import { fetchGeoRegime } from './lib/georegime'
+import TreasuryAuctionPanel from './components/TreasuryAuctionPanel'
+import { fetchTreasuryAuctions } from './lib/treasury'
 
 import LoginGate from './components/LoginGate'
 
@@ -56,6 +58,10 @@ export default function App() {
   const [geoLoading, setGeoLoading] = useState(false)
   const [geoError, setGeoError] = useState(null)
 
+  const [treasuryData, setTreasuryData] = useState(null)
+  const [treasuryLoading, setTreasuryLoading] = useState(false)
+  const [treasuryError, setTreasuryError] = useState(null)
+
   const [loading, setLoading] = useState(false)
   const [lastUpdated, setLastUpdated] = useState(null)
   const [error, setError] = useState(null)
@@ -88,6 +94,13 @@ export default function App() {
     fetchReferenceLatest()
       .then(data => { setReferenceData(data); setReferenceLoading(false) })
       .catch(err => { setReferenceError(err.message); setReferenceLoading(false) })
+
+    // Treasury auctions — direct from Fiscal Data API, non-blocking
+    setTreasuryLoading(true)
+    setTreasuryError(null)
+    fetchTreasuryAuctions()
+      .then(data => { setTreasuryData(data); setTreasuryLoading(false) })
+      .catch(err => { setTreasuryError(err.message); setTreasuryLoading(false) })
 
     // Geo regime — recent runs + active signals, non-blocking
     if (SHOW_GEO) {
@@ -248,6 +261,14 @@ export default function App() {
               Loading macro conditions…
             </div>
           )}
+        </section>
+
+        {/* Treasury Auctions — recent auction results from Fiscal Data API */}
+        <section>
+          <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">
+            Treasury Auctions
+          </h2>
+          <TreasuryAuctionPanel data={treasuryData} loading={treasuryLoading} error={treasuryError} />
         </section>
 
         {/* Vol Surface — Tradier/ORATS SPX term structure */}
