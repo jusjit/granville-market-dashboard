@@ -167,10 +167,11 @@ Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX
 3. **7 Granville Signal Cards** — green/yellow/red
 4. **Granville Signal Log** — plain-English bullet log
 5. **Macro Conditions** — slate cards, descriptive only (not scored)
-6. **Vol Surface** — SPX term structure, Tradier/ORATS options data. Has its own Refresh button (re-fetches live data without refreshing the full dashboard) + Compare snapshot toggle for historical overlay.
-7. **VIX Futures & Fed Rate %** — collapsible; VX monthly futures (vixcentral/CBOE delayed) + CME FedWatch (ZQ futures/FRED). Snapshot slider for historical comparison. Populated by 4-hourly cron.
-8. **Geo Regime** — collapsible, private dashboard only (`VITE_SHOW_GEO_REGIME=true`). Three sections: Regime Summary (severity tiles per implication type derived from all signals), Monitored Signals (5 seed signals with category/state/implication), Recent Runs (10 expandable cards showing LLM synthesis, considered/excluded categories with reasoning, diff, token usage). Data from unauthenticated GET on `/api/aggregate-geo-regime`.
-9. **Alma Centroid** — private dashboard only (`VITE_SHOW_ALMA=true`)
+6. **Treasury Auctions** — recent auction results (last 60 days) from Fiscal Data API (`api.fiscaldata.treasury.gov`). No API key, no serverless function — fetches directly from the browser. Two tables: notes/bonds/TIPS (with tail in bp) and bills. Shows date, type, term, offering size, high yield, tail, bid-to-cover, direct/indirect/dealer bidder splits.
+7. **Vol Surface** — SPX term structure, Tradier/ORATS options data. Has its own Refresh button (re-fetches live data without refreshing the full dashboard) + Compare snapshot toggle for historical overlay.
+8. **VIX Futures & Fed Rate %** — collapsible; VX monthly futures (vixcentral/CBOE delayed) + CME FedWatch (ZQ futures/FRED). Snapshot slider for historical comparison. Populated by 4-hourly cron.
+9. **Geo Regime** — collapsible, private dashboard only (`VITE_SHOW_GEO_REGIME=true`). Three sections: Regime Summary (severity tiles per implication type derived from all signals), Monitored Signals (5 seed signals with category/state/implication), Recent Runs (10 expandable cards showing LLM synthesis, considered/excluded categories with reasoning, diff, token usage). Data from unauthenticated GET on `/api/aggregate-geo-regime`.
+10. **Alma Centroid** — private dashboard only (`VITE_SHOW_ALMA=true`)
 
 ## Vercel Function Count (Hobby plan limit: 12)
 Current count: **11 JS + 1 Python = 12 total** (at the limit).
