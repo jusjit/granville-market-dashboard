@@ -7,6 +7,40 @@ const RUN_TYPE_STYLE = {
   'gated-skip': 'bg-slate-800/50 border-slate-700/40 text-slate-400',
 }
 
+const IMPLICATION_LABELS = {
+  oil_shock_risk: 'Oil Shock',
+  carry_unwind: 'Carry Unwind',
+  equity_drawdown_severity: 'Equity Drawdown',
+  safe_haven_bid: 'Safe Haven',
+  freight_cost_shock: 'Freight Shock',
+  em_fx_stress: 'EM FX Stress',
+}
+
+const CATEGORY_LABELS = {
+  chokepoint: 'Chokepoint',
+  conflict: 'Conflict',
+  supply_chain: 'Supply Chain',
+  policy: 'Policy',
+}
+
+const STATE_STYLE = {
+  escalating: 'text-red-400',
+  stable: 'text-slate-400',
+  de_escalating: 'text-emerald-400',
+}
+
+function severityColor(sev) {
+  if (sev >= 60) return 'text-red-400'
+  if (sev >= 30) return 'text-amber-400'
+  return 'text-slate-400'
+}
+
+function severityBg(sev) {
+  if (sev >= 60) return 'bg-red-950/40 border-red-900/40'
+  if (sev >= 30) return 'bg-amber-950/30 border-amber-900/30'
+  return 'bg-slate-800/40 border-slate-700/40'
+}
+
 function RunTypeBadge({ type }) {
   return (
     <span className={`px-1.5 py-0.5 rounded text-[10px] border ${RUN_TYPE_STYLE[type] ?? RUN_TYPE_STYLE['gated-skip']}`}>
@@ -30,6 +64,99 @@ function fmtTime(iso) {
     hour: 'numeric', minute: '2-digit',
   })
 }
+
+/* ── Section 1: Regime Summary (from current_regime view) ── */
+
+function deriveRegime(signals) {
+  const buckets = {}
+  let escalating = 0
+  for (const s of signals) {
+    if (s.implication && s.implication !== 'none') {
+      const key = s.implication
+      buckets[key] = Math.max(buckets[key] ?? 0, s.severity ?? 0)
+    }
+    if (s.state === 'escalating') escalating++
+  }
+  return { buckets, escalating }
+}
+
+function RegimeSummary({ allSignals, latestRun }) {
+  if (!allSignals?.length) return null
+  const { buckets, escalating } = deriveRegime(allSignals)
+  const implications = [
+    { key: 'oil_shock_risk', label: 'Oil Shock' },
+    { key: 'carry_unwind', label: 'Carry Unwind' },
+    { key: 'equity_drawdown_severity', label: 'Equity Drawdown' },
+    { key: 'safe_haven_bid', label: 'Safe Haven' },
+    { key: 'freight_cost_shock', label: 'Freight Shock' },
+  ].map(i => ({ ...i, value: buckets[i.key] ?? 0 })).filter(i => i.value > 0)
+
+  const maxSeverity = Math.max(...implications.map(i => i.value ?? 0), 0)
+  const summaryColor = maxSeverity >= 60 ? 'border-red-900/40 bg-red-950/15'
+    : maxSeverity >= 30 ? 'border-amber-900/30 bg-amber-950/10'
+    : 'border-slate-800 bg-slate-900/30'
+
+  return (
+    <div className={`rounded-xl border ${summaryColor} px-4 py-3`}>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Regime Summary</p>
+        {escalating > 0 && (
+          <span className="text-[10px] text-red-400">{escalating} escalating</span>
+        )}
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {implications.map(i => (
+          <div key={i.key} className={`rounded-lg border px-2.5 py-1.5 ${severityBg(i.value)}`}>
+            <p className="text-[9px] text-slate-500 uppercase tracking-wider">{i.label}</p>
+            <p className={`text-lg font-semibold tabular-nums ${severityColor(i.value)}`}>{i.value}</p>
+          </div>
+        ))}
+      </div>
+      {latestRun && (
+        <p className="text-[9px] text-slate-600 mt-2">
+          Last assessed {fmtAgo(latestRun.evaluated_at)} · {latestRun.run_type}
+          {latestRun.flagged && ` · flagged: ${latestRun.risk_category}`}
+        </p>
+      )}
+    </div>
+  )
+}
+
+/* ── Section 2: Standing Signals (seed signals, not LLM-generated) ── */
+
+function StandingSignals({ signals }) {
+  if (!signals?.length) return null
+  return (
+    <div>
+      <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Monitored Signals</p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5">
+        {signals.map(s => (
+          <div key={s.slug} className={`rounded-lg border px-3 py-2 ${severityBg(s.severity)}`}>
+            <div className="flex items-center justify-between mb-0.5">
+              <span className="text-[11px] font-semibold text-slate-200 truncate">{s.name}</span>
+              <span className={`text-sm font-semibold tabular-nums ml-2 ${severityColor(s.severity)}`}>
+                {s.severity}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5 text-[9px]">
+              <span className="px-1 py-0.5 rounded bg-slate-800/60 border border-slate-700/40 text-slate-400">
+                {CATEGORY_LABELS[s.category] ?? s.category}
+              </span>
+              <span className={STATE_STYLE[s.state] ?? 'text-slate-400'}>
+                {s.state?.replace('_', '-')}
+              </span>
+              {s.implication && s.implication !== 'none' && (
+                <span className="text-slate-500">→ {IMPLICATION_LABELS[s.implication] ?? s.implication.replace(/_/g, ' ')}</span>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/* ── Section 3: Recent Runs (expandable cards) ── */
 
 function RunCard({ run, expanded, onToggle }) {
   const verdict = run.verdict ?? {}
@@ -68,7 +195,6 @@ function RunCard({ run, expanded, onToggle }) {
 
       {expanded && (
         <div className="px-3 pb-3 space-y-2.5 border-t border-slate-800/60">
-          {/* Synthesis / verdict */}
           {run.run_type !== 'gated-skip' && verdict.reasoning && (
             <div className="mt-2">
               <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Synthesis</p>
@@ -90,7 +216,6 @@ function RunCard({ run, expanded, onToggle }) {
             <p className="mt-2 text-[11px] text-slate-500 italic">No LLM call — material state unchanged since last snapshot.</p>
           )}
 
-          {/* What changed (diff) */}
           {diffKeys.length > 0 && (
             <div>
               <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">What changed</p>
@@ -104,7 +229,6 @@ function RunCard({ run, expanded, onToggle }) {
             </div>
           )}
 
-          {/* Considered categories */}
           {considered.length > 0 && (
             <div>
               <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">
@@ -120,7 +244,6 @@ function RunCard({ run, expanded, onToggle }) {
             </div>
           )}
 
-          {/* Dismissed categories with reasons */}
           {dismissedKeys.length > 0 && (
             <div>
               <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">
@@ -137,7 +260,6 @@ function RunCard({ run, expanded, onToggle }) {
             </div>
           )}
 
-          {/* Token usage */}
           {run.token_usage && (
             <p className="text-[10px] text-slate-600">
               {run.token_usage.inputToken?.toLocaleString()} in / {run.token_usage.totalToken?.toLocaleString()} total tokens
@@ -145,7 +267,6 @@ function RunCard({ run, expanded, onToggle }) {
             </p>
           )}
 
-          {/* Source errors */}
           {run.source_errors?.length > 0 && (
             <div>
               <p className="text-[10px] font-semibold text-red-500 uppercase tracking-wider mb-0.5">Source errors</p>
@@ -160,40 +281,19 @@ function RunCard({ run, expanded, onToggle }) {
   )
 }
 
-function ActiveSignals({ signals }) {
-  if (!signals?.length) return null
-  return (
-    <div className="space-y-1.5">
-      <p className="text-[10px] font-semibold text-red-400 uppercase tracking-wider">Active signals</p>
-      {signals.map(s => (
-        <div key={s.slug} className="rounded-lg border border-red-900/30 bg-red-950/15 px-3 py-2">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-[11px] font-semibold text-red-300">{s.name}</span>
-            <span className="px-1.5 py-0.5 rounded text-[10px] bg-red-950/50 border border-red-800/40 text-red-300">
-              {s.severity}/100
-            </span>
-            {s.implication && s.implication !== 'none' && (
-              <span className="text-[10px] text-red-400/70">{s.implication.replace(/_/g, ' ')}</span>
-            )}
-          </div>
-          {s.notes && (
-            <p className="text-[10px] text-slate-400 leading-relaxed line-clamp-3">{s.notes}</p>
-          )}
-        </div>
-      ))}
-    </div>
-  )
-}
+/* ── Main Panel ── */
 
 export default function GeoRegimePanel({ data, loading, error }) {
   const [collapsed, setCollapsed] = useState(true)
   const [expandedRun, setExpandedRun] = useState(null)
 
   const runs = data?.runs ?? []
-  const signals = data?.signals ?? []
+  const allSignals = data?.signals ?? []
   const latestRun = runs[0]
 
-  // Auto-expand the most recent run on first open
+  const standingSignals = allSignals.filter(s => !s.slug?.startsWith('llm-'))
+  const aiSignalCount = allSignals.length - standingSignals.length
+
   const handleToggle = () => {
     setCollapsed(v => {
       if (v && expandedRun === null && latestRun) setExpandedRun(latestRun.id)
@@ -220,7 +320,7 @@ export default function GeoRegimePanel({ data, loading, error }) {
       </button>
 
       {!collapsed && (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {loading && (
             <div className="rounded-xl border border-slate-800 bg-slate-900/40 px-5 py-6 text-center text-sm text-slate-600 animate-pulse">
               Loading geo regime…
@@ -235,11 +335,19 @@ export default function GeoRegimePanel({ data, loading, error }) {
 
           {!loading && !error && (
             <>
-              <ActiveSignals signals={signals} />
+              <RegimeSummary allSignals={allSignals} latestRun={latestRun} />
+
+              <StandingSignals signals={standingSignals} />
+
+              {aiSignalCount > 0 && (
+                <p className="text-[9px] text-slate-600 -mt-2">
+                  + {aiSignalCount} LLM-generated flag{aiSignalCount !== 1 ? 's' : ''} in signal history (severity drives regime summary above)
+                </p>
+              )}
 
               <div>
                 <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
-                  Recent runs ({runs.length})
+                  Recent Runs ({runs.length})
                 </p>
                 <div className="space-y-1">
                   {runs.map(run => (
