@@ -6,7 +6,7 @@
   ],
   "functions": {
     "api/aggregate-geo-regime.js": {
-      "maxDuration": 150
+      "maxDuration": 300
     },
     "api/synthesis.js": {
       "maxDuration": 75

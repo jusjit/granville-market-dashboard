@@ -18,5 +18,5 @@ jobs:
     steps:
       - name: Call aggregate-geo-regime endpoint (scan=full)
         run: |
-          curl -f -X GET "https://private-market-dashboard.vercel.app/api/aggregate-geo-regime?scan=full" \
+          curl -f --max-time 280 -X GET "https://private-market-dashboard.vercel.app/api/aggregate-geo-regime?scan=full" \
             -H "Authorization: Bearer ${{ secrets.SNAPSHOT_SECRET }}"

@@ -446,7 +446,7 @@ function sleep(ms) { return new Promise(res => setTimeout(res, ms)) }
 async function callOneMinOnce(prompt, key, model) {
   const r = await fetch('https://api.1min.ai/api/chat-with-ai', {
     method: 'POST',
-    signal: AbortSignal.timeout(60000), // caps a single attempt so a hang can't eat the whole retry budget
+    signal: AbortSignal.timeout(120000), // gemini-2.5-flash routinely needs 40-60s; 60s timeout was too tight and caused 3 double-timeout failures on 2026-07-21 alone
     headers: { 'Content-Type': 'application/json', 'API-KEY': key },
     body: JSON.stringify({ type: 'CHAT', model, promptObject: { prompt, isMixed: false } }),
   })
@@ -478,10 +478,12 @@ async function callOneMinOnce(prompt, key, model) {
 // duration (46-58s observed, vs Sonnet's steadier ~40s) widens the exposure
 // window for a transient 1min.ai/Gemini gateway hiccup — a single retry
 // absorbs that within the same invocation instead of waiting hours and
-// firing a failure email in between. Each attempt is capped at 60s (see
-// AbortSignal.timeout in callOneMinOnce) so a hang can't silently eat the
-// whole budget; worst case is ~60s + 3s backoff + ~60s + gatherSignals()'s
-// own time, which is why vercel.json's maxDuration was raised to 150.
+// firing a failure email in between. Each attempt is capped at 120s (see
+// AbortSignal.timeout in callOneMinOnce — raised from 60s on 2026-07-21
+// after 3 double-timeout failures in one day; gemini regularly needs 40-60s
+// and intermittently exceeds 60s) so a hang can't silently eat the whole
+// budget; worst case is ~120s + 3s backoff + ~120s + gatherSignals()'s
+// own time, which is why vercel.json's maxDuration is set to 300.
 async function callOneMin(prompt, key, model = MODEL) {
   try {
     return await callOneMinOnce(prompt, key, model)

@@ -22,5 +22,5 @@ jobs:
         run: |
           FORCE=""
           if [ "${{ inputs.force }}" = "true" ]; then FORCE="?force=1"; fi
-          curl -f -X GET "https://private-market-dashboard.vercel.app/api/aggregate-geo-regime$FORCE" \
+          curl -f --max-time 280 -X GET "https://private-market-dashboard.vercel.app/api/aggregate-geo-regime$FORCE" \
             -H "Authorization: Bearer ${{ secrets.SNAPSHOT_SECRET }}"
