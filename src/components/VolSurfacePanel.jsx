@@ -72,6 +72,12 @@ function VolTooltip({ active, payload, label }) {
           {p.spotIV != null && ` · Δ ${((p.spotIV - p.histSpotIV) * 100 >= 0 ? '+' : '')}${((p.spotIV - p.histSpotIV) * 100).toFixed(2)} pts`}
         </p>
       )}
+      {p.histForwardIV != null && (
+        <p style={{ color: '#5a9e7a' }}>
+          Fwd IV (snapshot): {(p.histForwardIV * 100).toFixed(2)}%
+          {p.forwardIV != null && ` · Δ ${((p.forwardIV - p.histForwardIV) * 100 >= 0 ? '+' : '')}${((p.forwardIV - p.histForwardIV) * 100).toFixed(2)} pts`}
+        </p>
+      )}
       {p.events?.length > 0 && (
         <p className="text-slate-400 mt-1">Events: {p.events.join(', ')}</p>
       )}
@@ -165,6 +171,7 @@ export default function VolSurfacePanel({ data, loading, error, onRefresh }) {
     for (const h of toRows(selected)) {
       const cur = byExp.get(h.expiration) ?? { expiration: h.expiration, tick: h.tick, events: h.events }
       cur.histSpotIV = h.spotIV
+      cur.histForwardIV = h.forwardIV ?? null
       byExp.set(h.expiration, cur)
     }
     points = [...byExp.values()].sort((a, b) => (a.expiration < b.expiration ? -1 : 1))
@@ -297,6 +304,19 @@ export default function VolSurfacePanel({ data, loading, error, onRefresh }) {
                 strokeWidth={1.5}
                 strokeDasharray="2 2"
                 dot={{ r: 2, fill: C.lowConf }}
+                activeDot={{ r: 4 }}
+                connectNulls
+                isAnimationActive={false}
+              />
+            )}
+            {viewingHistory && (
+              <Line
+                name={`Fwd IV @ ${fmtTime(selected.captured_at)}`}
+                dataKey="histForwardIV"
+                stroke="#5a9e7a"
+                strokeWidth={1.5}
+                strokeDasharray="4 2"
+                dot={{ r: 2, fill: '#5a9e7a' }}
                 activeDot={{ r: 4 }}
                 connectNulls
                 isAnimationActive={false}
