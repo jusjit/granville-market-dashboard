@@ -1,6 +1,42 @@
 import { useState, useEffect, useCallback } from 'react'
 import { ChevronDown } from 'lucide-react'
 
+/* ── Glossary tooltips ── */
+
+const GLOSSARY = {
+  ucdp: 'Uppsala Conflict Data Program — tracks armed conflicts worldwide',
+  cii: 'Country Instability Index — composite fragility score per country',
+  crossSource: 'Cross-source convergence — same signal detected by multiple independent feeds',
+  posture: 'Theater military posture — naval/air force deployments near chokepoints',
+  shipping: 'Shipping stress — transit delays, diversions, and insurance cost spikes',
+  chokepoint: 'Maritime chokepoint — narrow passage where shipping can be disrupted',
+  chokepoints: 'Maritime chokepoints — narrow passages where shipping can be disrupted',
+  flowRatio: 'Flow ratio — current vs. normal vessel transit volume through a corridor',
+  warRiskTier: "Lloyd's Joint War Committee risk tier — determines insurance premiums",
+  'full-scan': 'Complete dataset re-evaluation — all sources queried, full LLM analysis',
+  'gated-triggered': 'Delta scan — only changed categories sent to LLM (cost-saving)',
+  'gated-skip': 'No material change detected — LLM not called, zero tokens used',
+  oil_shock_risk: 'Probability of a supply-driven oil price spike from disruption',
+  carry_unwind: 'Risk of leveraged FX carry trades unwinding (JPY strength signal)',
+  equity_drawdown_severity: 'Expected equity market drawdown from geo escalation',
+  safe_haven_bid: 'Flight-to-safety demand for USD, treasuries, gold, CHF',
+  freight_cost_shock: 'Risk of sharp rise in shipping/freight costs',
+  em_fx_stress: 'Emerging market currency stress from risk-off flows',
+}
+
+function Tip({ term, children }) {
+  const tip = GLOSSARY[term]
+  if (!tip) return children ?? <span>{term}</span>
+  return (
+    <span className="relative group/tip cursor-help border-b border-dotted border-slate-600">
+      {children ?? term}
+      <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 rounded text-[10px] text-slate-200 bg-slate-800 border border-slate-700 whitespace-nowrap opacity-0 group-hover/tip:opacity-100 pointer-events-none transition-opacity z-50 max-w-[250px] whitespace-normal text-center">
+        {tip}
+      </span>
+    </span>
+  )
+}
+
 const RUN_TYPE_STYLE = {
   'full-scan': 'bg-indigo-950/50 border-indigo-800/40 text-indigo-300',
   'gated-triggered': 'bg-amber-950/50 border-amber-800/40 text-amber-300',
@@ -228,14 +264,30 @@ function useHeadlines() {
   const [headlines, setHeadlines] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [stale, setStale] = useState(false)
 
-  const refresh = useCallback(() => {
+  const refresh = useCallback(async () => {
     setLoading(true)
-    fetch(GDELT_URL)
-      .then(r => { if (!r.ok) throw new Error(`GDELT ${r.status}`); return r.json() })
-      .then(data => { setHeadlines(data.articles ?? []); setError(null) })
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false))
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        if (attempt > 0) await new Promise(r => setTimeout(r, 2000 * attempt))
+        const r = await fetch(GDELT_URL)
+        if (r.status === 429) { continue }
+        if (!r.ok) throw new Error(`GDELT ${r.status}`)
+        const data = await r.json()
+        setHeadlines(data.articles ?? [])
+        setError(null)
+        setStale(false)
+        setLoading(false)
+        return
+      } catch (e) {
+        if (attempt === 2) {
+          setError(e.message)
+          setStale(prev => prev || headlines.length > 0)
+        }
+      }
+    }
+    setLoading(false)
   }, [])
 
   useEffect(() => {
@@ -244,7 +296,7 @@ function useHeadlines() {
     return () => clearInterval(id)
   }, [refresh])
 
-  return { headlines, loading, error }
+  return { headlines, loading, error, stale }
 }
 
 function gdeltTime(seendate) {
@@ -259,7 +311,7 @@ function gdeltTime(seendate) {
 }
 
 function Headlines() {
-  const { headlines, loading, error } = useHeadlines()
+  const { headlines, loading, error, stale } = useHeadlines()
   const [expanded, setExpanded] = useState(false)
   const visible = expanded ? headlines.slice(0, 8) : headlines.slice(0, 3)
 
@@ -267,12 +319,13 @@ function Headlines() {
     <div className="rounded-lg border border-slate-800 bg-slate-900/30 px-3 py-2">
       <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">
         Breaking Headlines <span className="normal-case font-normal text-slate-600">(GDELT · refreshes every 20m · not used in scoring)</span>
+        {stale && <span className="text-amber-600 ml-1">(stale — refresh failed)</span>}
       </p>
       {loading && headlines.length === 0 && (
         <p className="text-[10px] text-slate-600 animate-pulse">Loading headlines…</p>
       )}
       {error && headlines.length === 0 && (
-        <p className="text-[10px] text-red-400/70">{error}</p>
+        <p className="text-[10px] text-red-400/70">Headlines unavailable — retried 3×, GDELT may be rate-limiting</p>
       )}
       {visible.length > 0 && (
         <div className="space-y-0.5">
@@ -397,9 +450,11 @@ function RunCard({ run, expanded, onToggle }) {
               <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">What changed</p>
               <div className="flex flex-wrap gap-1">
                 {diffKeys.map(k => (
-                  <span key={k} className="px-1.5 py-0.5 rounded text-[10px] bg-amber-950/40 border border-amber-800/30 text-amber-300">
-                    {k}
-                  </span>
+                  <Tip key={k} term={k}>
+                    <span className="px-1.5 py-0.5 rounded text-[10px] bg-amber-950/40 border border-amber-800/30 text-amber-300">
+                      {k}
+                    </span>
+                  </Tip>
                 ))}
               </div>
             </div>
@@ -412,9 +467,11 @@ function RunCard({ run, expanded, onToggle }) {
               </p>
               <div className="flex flex-wrap gap-1">
                 {considered.map(c => (
-                  <span key={c} className="px-1.5 py-0.5 rounded text-[10px] bg-slate-800/60 border border-slate-700/40 text-slate-300">
-                    {c}
-                  </span>
+                  <Tip key={c} term={c}>
+                    <span className="px-1.5 py-0.5 rounded text-[10px] bg-slate-800/60 border border-slate-700/40 text-slate-300">
+                      {c}
+                    </span>
+                  </Tip>
                 ))}
               </div>
             </div>
@@ -428,7 +485,7 @@ function RunCard({ run, expanded, onToggle }) {
               <div className="space-y-1">
                 {dismissedKeys.map(k => (
                   <div key={k} className="flex gap-2 text-[10px]">
-                    <span className="text-slate-400 shrink-0">{k}:</span>
+                    <Tip term={k}><span className="text-slate-400 shrink-0">{k}</span></Tip>
                     <span className="text-slate-500">{dismissed[k]}</span>
                   </div>
                 ))}
