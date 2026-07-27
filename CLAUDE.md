@@ -427,6 +427,9 @@ between Reference Data and Alma. Six sections (top to bottom):
    20-min auto-refresh, 3 headlines default with expand-to-8. Not fed into
    scoring — separate unprocessed fast layer alongside the slow structural
    pipeline. GDELT has aggressive rate limits; the 20-min interval is safe.
+   Retry logic (2026-07-27): 3 attempts with increasing backoff on 429s;
+   last successful headlines cached and shown as "stale" if refresh fails
+   (no more blank "Failed to fetch" on transient rate-limit hits).
 5. **Monitored Signals** — the 5 seed signals (non-`llm-*` slugs: Hormuz,
    Bab el-Mandeb, Taiwan, BOJ, Semis) as compact cards with category, state,
    and market implication. LLM-generated `AI flag:` signals are rolled into
@@ -435,7 +438,11 @@ between Reference Data and Alma. Six sections (top to bottom):
    triggered/gated-skip), flagged status, synthesis (verdict reasoning +
    transmission chain + confidence), what changed (diff keys), considered
    categories, excluded categories with per-category reasoning, token usage,
-   and source errors.
+   and source errors. Technical term badges in "What changed", "Considered",
+   and "Excluded" sections have hover tooltips (added 2026-07-27) via a
+   `GLOSSARY` map + `Tip` component — covers ucdp, cii, crossSource, posture,
+   shipping, chokepoint, flowRatio, warRiskTier, run types, and all implication
+   keys. Dotted underline indicates hoverable terms.
 
 **Files**:
 - `api/aggregate-geo-regime.js` — unauthenticated GET returns read-only regime
