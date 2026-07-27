@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { ChevronDown } from 'lucide-react'
 
 const RUN_TYPE_STYLE = {
@@ -122,7 +122,183 @@ function RegimeSummary({ allSignals, latestRun }) {
   )
 }
 
-/* ── Section 2: Standing Signals (seed signals, not LLM-generated) ── */
+/* ── Section 2: Tier Staleness Warnings ── */
+
+const STALENESS_THRESHOLD_DAYS = 14
+const CHOKEPOINT_NAMES = {
+  hormuz_strait: 'Hormuz',
+  bab_el_mandeb: 'Bab el-Mandeb',
+  suez: 'Suez',
+  taiwan_strait: 'Taiwan Strait',
+}
+const TIER_SHORT = {
+  WAR_RISK_TIER_WAR_ZONE: 'War Zone',
+  WAR_RISK_TIER_CRITICAL: 'Critical',
+  WAR_RISK_TIER_HIGH: 'High',
+  WAR_RISK_TIER_ELEVATED: 'Elevated',
+  WAR_RISK_TIER_NORMAL: 'Normal',
+}
+
+function TierStaleness({ tierTracking }) {
+  if (!tierTracking) return null
+  const now = Date.now()
+  const stale = Object.entries(tierTracking)
+    .map(([id, t]) => ({
+      id,
+      name: CHOKEPOINT_NAMES[id] ?? id,
+      tier: TIER_SHORT[t.tier] ?? t.tier,
+      daysStale: Math.floor((now - new Date(t.last_changed_at).getTime()) / 86400000),
+    }))
+    .filter(t => t.daysStale >= STALENESS_THRESHOLD_DAYS)
+    .sort((a, b) => b.daysStale - a.daysStale)
+
+  if (stale.length === 0) return null
+
+  return (
+    <div className="rounded-lg border border-amber-900/40 bg-amber-950/15 px-3 py-2">
+      <p className="text-[10px] font-semibold text-amber-500 uppercase tracking-wider mb-1.5">
+        Stale Risk Tiers
+      </p>
+      <div className="space-y-1">
+        {stale.map(s => (
+          <div key={s.id} className="flex items-center justify-between text-[11px]">
+            <span className="text-slate-300">{s.name}</span>
+            <div className="flex items-center gap-2">
+              <span className="text-slate-500">{s.tier}</span>
+              <span className="px-1.5 py-0.5 rounded text-[10px] bg-amber-950/50 border border-amber-800/30 text-amber-400">
+                {s.daysStale}d unchanged
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="text-[9px] text-amber-700 mt-1.5">
+        Upstream warRiskTier is manually configured — verify these still reflect current conditions.
+      </p>
+    </div>
+  )
+}
+
+/* ── Section 3: Market Pricing (independent comparison layer) ── */
+
+function MarketPricing({ marketPricing }) {
+  if (!marketPricing) return null
+  const items = [
+    { key: 'wti', ...marketPricing.wti },
+    { key: 'vix', ...marketPricing.vix },
+    { key: 'hyOas', ...marketPricing.hyOas },
+    { key: 'yen', ...marketPricing.yen },
+  ].filter(i => i.value != null)
+
+  if (items.length === 0) return null
+
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-900/30 px-3 py-2">
+      <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+        Market Pricing <span className="normal-case font-normal text-slate-600">(independent — not used in geo scoring)</span>
+      </p>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {items.map(i => (
+          <div key={i.key} className="rounded-lg border border-slate-800 bg-slate-950/40 px-2.5 py-1.5">
+            <p className="text-[9px] text-slate-500 uppercase tracking-wider">{i.label}</p>
+            <p className="text-sm font-semibold tabular-nums text-slate-300">
+              {typeof i.value === 'number' ? i.value.toFixed(2) : i.value}
+            </p>
+          </div>
+        ))}
+      </div>
+      <p className="text-[9px] text-slate-600 mt-1.5">
+        Compare against geo severity above — these values do not influence the risk assessment.
+      </p>
+    </div>
+  )
+}
+
+/* ── Section 4: Breaking Headlines (client-side GDELT, no LLM) ── */
+
+const GDELT_QUERY = '(hormuz OR "bab el-mandeb" OR houthi OR "red sea" OR "taiwan strait" OR "south china sea") sourcelang:english'
+const GDELT_URL = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(GDELT_QUERY)}&mode=artlist&maxrecords=8&format=json&sort=datedesc`
+const HEADLINE_REFRESH_MS = 20 * 60 * 1000
+
+function shortDomain(domain) {
+  return (domain ?? '').replace(/^www\./, '').split('.').slice(0, -1).join('.') || domain
+}
+
+function useHeadlines() {
+  const [headlines, setHeadlines] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+
+  const refresh = useCallback(() => {
+    setLoading(true)
+    fetch(GDELT_URL)
+      .then(r => { if (!r.ok) throw new Error(`GDELT ${r.status}`); return r.json() })
+      .then(data => { setHeadlines(data.articles ?? []); setError(null) })
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false))
+  }, [])
+
+  useEffect(() => {
+    refresh()
+    const id = setInterval(refresh, HEADLINE_REFRESH_MS)
+    return () => clearInterval(id)
+  }, [refresh])
+
+  return { headlines, loading, error }
+}
+
+function gdeltTime(seendate) {
+  if (!seendate) return ''
+  const d = new Date(seendate.replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/, '$1-$2-$3T$4:$5:$6Z'))
+  const ms = Date.now() - d.getTime()
+  const mins = Math.floor(ms / 60000)
+  if (mins < 60) return `${mins}m`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h`
+  return `${Math.floor(hrs / 24)}d`
+}
+
+function Headlines() {
+  const { headlines, loading, error } = useHeadlines()
+  const [expanded, setExpanded] = useState(false)
+  const visible = expanded ? headlines.slice(0, 8) : headlines.slice(0, 3)
+
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-900/30 px-3 py-2">
+      <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">
+        Breaking Headlines <span className="normal-case font-normal text-slate-600">(GDELT · refreshes every 20m · not used in scoring)</span>
+      </p>
+      {loading && headlines.length === 0 && (
+        <p className="text-[10px] text-slate-600 animate-pulse">Loading headlines…</p>
+      )}
+      {error && headlines.length === 0 && (
+        <p className="text-[10px] text-red-400/70">{error}</p>
+      )}
+      {visible.length > 0 && (
+        <div className="space-y-0.5">
+          {visible.map((a, i) => (
+            <div key={i} className="flex items-baseline gap-1.5 text-[11px] leading-tight py-0.5">
+              <span className="text-slate-600 shrink-0 tabular-nums w-6 text-right">{gdeltTime(a.seendate)}</span>
+              <span className="text-slate-500 shrink-0 truncate max-w-[80px]">{shortDomain(a.domain)}</span>
+              <a href={a.url} target="_blank" rel="noopener noreferrer"
+                 className="text-slate-300 hover:text-slate-100 truncate transition-colors">
+                {a.title}
+              </a>
+            </div>
+          ))}
+        </div>
+      )}
+      {headlines.length > 3 && (
+        <button onClick={() => setExpanded(v => !v)}
+                className="text-[10px] text-slate-600 hover:text-slate-400 mt-1 transition-colors">
+          {expanded ? 'show fewer' : `+${headlines.length - 3} more`}
+        </button>
+      )}
+    </div>
+  )
+}
+
+/* ── Section 5: Standing Signals (seed signals, not LLM-generated) ── */
 
 function StandingSignals({ signals }) {
   if (!signals?.length) return null
@@ -156,7 +332,7 @@ function StandingSignals({ signals }) {
   )
 }
 
-/* ── Section 3: Recent Runs (expandable cards) ── */
+/* ── Section 4: Recent Runs (expandable cards) ── */
 
 function RunCard({ run, expanded, onToggle }) {
   const verdict = run.verdict ?? {}
@@ -336,6 +512,12 @@ export default function GeoRegimePanel({ data, loading, error }) {
           {!loading && !error && (
             <>
               <RegimeSummary allSignals={allSignals} latestRun={latestRun} />
+
+              <TierStaleness tierTracking={data?.tierTracking} />
+
+              <MarketPricing marketPricing={data?.marketPricing} />
+
+              <Headlines />
 
               <StandingSignals signals={standingSignals} />
 

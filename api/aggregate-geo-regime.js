@@ -160,10 +160,6 @@ const THRESHOLDS = {
   ucdpDeathCount: 50,            // per-country death count
   shippingChangePct: 2,          // carrier % change points
   theaterActiveFlights: 15,      // count — was 5; single-digit counts jitter within minutes
-  hyOas: 0.25,                   // percentage points
-  yen: 2,                        // USD/JPY
-  wti: 2,                        // USD per barrel
-  vix: 1,                        // VIX points
 }
 
 // Categories that require the SAME deviation to be observed on two
@@ -214,10 +210,18 @@ function computeMaterialState(s) {
       .map(x => `${x.id}:${x.severity ?? ''}`).sort(),
     ucdp: (Array.isArray(s.ucdpSummary) ? s.ucdpSummary : [])
       .map(u => `${u.country}:${round(u.events, THRESHOLDS.ucdpEventCount)}:${round(u.deaths, THRESHOLDS.ucdpDeathCount)}`).sort(),
-    hyOas: round(latest(s.hyOas), THRESHOLDS.hyOas),
-    yen: round(latest(s.yen), THRESHOLDS.yen),
-    wti: round(latest(s.wtiSpot), THRESHOLDS.wti),
-    vix: round(latest(s.vix), THRESHOLDS.vix),
+  }
+}
+
+// Market pricing data — fetched but kept separate from the geo severity
+// assessment. Displayed alongside the geo signal as an independent comparison
+// layer ("what is the market currently pricing?"), never fed to the LLM.
+function extractMarketPricing(s) {
+  return {
+    hyOas: { value: latest(s.hyOas), series: 'BAMLH0A0HYM2', label: 'HY OAS (credit spreads)' },
+    yen: { value: latest(s.yen), series: 'DEXJPUS', label: 'USD/JPY' },
+    wti: { value: latest(s.wtiSpot), series: 'DCOILWTICO', label: 'WTI Spot' },
+    vix: { value: latest(s.vix), series: 'VIXCLS', label: 'VIX' },
   }
 }
 
@@ -328,13 +332,15 @@ function resolveGatedDiff(confirmed, pending, fresh) {
 
 const SYSTEM_PROMPT = `You are a geopolitical-to-markets edge detector. Your job is to flag risks BEFORE mainstream financial news picks them up — not to summarize current events.
 
-Given: chokepoint status (Hormuz, Bab al Mandeb, Suez, Taiwan Strait), supply chain stress indices, geopolitical event density (GDELT/UCDP), and macro stress (credit spreads, yen fixings, CII).
+Given: chokepoint status (Hormuz, Bab al Mandeb, Suez, Taiwan Strait), supply chain stress indices, geopolitical event density (GDELT/UCDP), CII country risk scores, and cross-source convergence signals.
 
 Identify risks that would trigger: (1) oil/energy shock, (2) carry unwind, (3) equity drawdown — via a clear transmission mechanism, not speculation.
 
-Flag ONLY if probability > 30% AND the market hasn't fully priced it yet — cross-check spot oil, SPX IV, and yen vol BEFORE flagging, not after. The edge is catching this ahead of confirmation, so bias toward earlier/lower-confidence flags with explicit confidence scores rather than waiting for certainty.
+IMPORTANT: Assess geo risk purely from the raw geopolitical, conflict, and supply chain signals provided. Do NOT consider whether markets have already priced the risk — market pricing data is evaluated separately outside this analysis. Flag any risk with probability > 30% regardless of current market levels.
 
-Additionally, evaluate EVERY signal category in the data (chokepoints, conflict/UCDP by country, cross-source convergence signals, CII per country, supply chain stress, credit, FX/carry, vol) and report your reasoning per category — including the ones you did NOT flag — so every run is a labeled data point.
+The edge is catching this ahead of confirmation, so bias toward earlier/lower-confidence flags with explicit confidence scores rather than waiting for certainty.
+
+Additionally, evaluate EVERY signal category in the data (chokepoints, conflict/UCDP by country, cross-source convergence signals, CII per country, supply chain stress) and report your reasoning per category — including the ones you did NOT flag — so every run is a labeled data point.
 
 Output strict JSON: {flagged: boolean, risk_category: string, confidence: INTEGER 0-100 (NOT a 0-1 probability — e.g. 65, not 0.65), transmission_chain: string, relevant_signals: string[], granville_modifier: {position_size_cap: number between 0 and 1, alma_reversion_confidence: INTEGER 0-100 (NOT a 0-1 probability — e.g. 28, not 0.28)}, categories_considered: string[], categories_dismissed_reason: {<category>: "one-line reason not flagged"}}`
 
@@ -350,12 +356,13 @@ Output strict JSON: {flagged: boolean, risk_category: string, confidence: INTEGE
 // Full-breadth prompt — complete current state of every category, used by
 // full-scan mode regardless of what changed.
 function buildFullPrompt(signals, errors) {
+  const geoSignals = Object.fromEntries(Object.entries(signals).filter(([k]) => !MARKET_SIGNAL_KEYS.has(k)))
   return `${SYSTEM_PROMPT}
 
 MODE: full-breadth scan (complete dataset, all categories, regardless of change).
 
 CURRENT SIGNAL DATA (JSON, null = source unavailable${errors.length ? `; failed sources: ${errors.join('; ')}` : ''}):
-${JSON.stringify(signals).slice(0, 60000)}
+${JSON.stringify(geoSignals).slice(0, 60000)}
 
 Respond with the strict JSON object only — no markdown fences, no commentary.`
 }
@@ -376,11 +383,10 @@ const SIGNAL_TO_MATERIAL_KEY = {
   riskScores: 'cii',
   crossSourceSignals: 'crossSource',
   ucdpSummary: 'ucdp',
-  hyOas: 'hyOas',
-  yen: 'yen',
-  wtiSpot: 'wti',
-  vix: 'vix',
 }
+
+// Market data keys — excluded from the LLM prompt and material-state diffing.
+const MARKET_SIGNAL_KEYS = new Set(['hyOas', 'yen', 'wtiSpot', 'vix'])
 
 // Delta prompt — used by gated-triggered mode. Chokepoints (+ hormuz) are
 // core to the trading thesis so they're always sent in full regardless of
@@ -395,6 +401,7 @@ function buildDeltaPrompt(signals, material, diff, errors) {
   const fullPayload = {}
   const unchangedSummary = {}
   for (const key of Object.keys(signals)) {
+    if (MARKET_SIGNAL_KEYS.has(key)) continue
     const materialKey = SIGNAL_TO_MATERIAL_KEY[key] ?? key
     if (ALWAYS_FULL.has(key) || changedMaterialKeys.has(materialKey)) fullPayload[key] = signals[key]
     else unchangedSummary[key] = material[materialKey]
@@ -509,21 +516,43 @@ function sb() {
 async function readLastSnapshot() {
   const c = sb(); if (!c) return null
   try {
-    const r = await fetch(`${c.url}/rest/v1/geo_regime_last_snapshot?id=eq.1&select=material,pending,raw,captured_at`, { headers: c.headers })
+    const r = await fetch(`${c.url}/rest/v1/geo_regime_last_snapshot?id=eq.1&select=material,pending,raw,captured_at,tier_tracking,market_pricing`, { headers: c.headers })
     if (!r.ok) return null
     return (await r.json())[0] ?? null
   } catch { return null }
 }
 
-async function writeLastSnapshot(material, pending, raw) {
+async function writeLastSnapshot(material, pending, raw, tierTracking, marketPricing) {
   const c = sb(); if (!c) return
   try {
     await fetch(`${c.url}/rest/v1/geo_regime_last_snapshot?on_conflict=id`, {
       method: 'POST',
       headers: { ...c.headers, Prefer: 'resolution=merge-duplicates' },
-      body: JSON.stringify([{ id: 1, material, pending, raw, captured_at: new Date().toISOString() }]),
+      body: JSON.stringify([{ id: 1, material, pending, raw, tier_tracking: tierTracking, market_pricing: marketPricing, captured_at: new Date().toISOString() }]),
     })
   } catch { /* non-fatal */ }
+}
+
+// Track upstream manually-configured fields (warRiskTier, threatLevel) so
+// the dashboard can warn when they go stale. Returns an updated tier_tracking
+// object with per-chokepoint {tier, first_seen_at, last_changed_at}.
+const TRACKED_CHOKEPOINTS = ['hormuz_strait', 'bab_el_mandeb', 'suez', 'taiwan_strait']
+function updateTierTracking(prevTracking, chokepoints) {
+  const now = new Date().toISOString()
+  const tracking = { ...(prevTracking ?? {}) }
+  const cpList = chokepoints?.chokepoints ?? []
+  for (const cp of cpList) {
+    if (!TRACKED_CHOKEPOINTS.includes(cp.id)) continue
+    const prev = tracking[cp.id]
+    const tier = cp.warRiskTier ?? null
+    if (!prev) {
+      tracking[cp.id] = { tier, first_seen_at: now, last_changed_at: now }
+    } else if (prev.tier !== tier) {
+      tracking[cp.id] = { tier, first_seen_at: now, last_changed_at: now }
+    }
+    // else: tier unchanged, keep existing timestamps
+  }
+  return tracking
 }
 
 function implicationFor(riskCategory) {
@@ -591,18 +620,20 @@ async function handleReadOnly(res) {
   if (!c) return res.status(500).json({ error: 'Supabase not configured' })
   try {
     const limit = 10
-    const [runsRes, signalsRes, regimeRes] = await Promise.all([
+    const [runsRes, signalsRes, regimeRes, snapshotRes] = await Promise.all([
       fetch(`${c.url}/rest/v1/geo_regime_runs?select=id,evaluated_at,run_type,flagged,confidence,risk_category,categories_considered,categories_dismissed_reason,verdict,diff,token_usage,source_errors&order=evaluated_at.desc&limit=${limit}`, { headers: c.headers }),
       fetch(`${c.url}/rest/v1/geopolitical_signals?select=*&order=severity.desc`, { headers: c.headers }),
       fetch(`${c.url}/rest/v1/current_regime?select=*&limit=1`, { headers: c.headers }),
+      fetch(`${c.url}/rest/v1/geo_regime_last_snapshot?id=eq.1&select=tier_tracking,market_pricing`, { headers: c.headers }),
     ])
-    const [runs, signals, regime] = await Promise.all([
+    const [runs, signals, regime, snapshot] = await Promise.all([
       runsRes.ok ? runsRes.json() : [],
       signalsRes.ok ? signalsRes.json() : [],
       regimeRes.ok ? regimeRes.json() : [],
+      snapshotRes.ok ? snapshotRes.json() : [],
     ])
     res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=120')
-    return res.status(200).json({ runs, signals, regime: regime[0] ?? null })
+    return res.status(200).json({ runs, signals, regime: regime[0] ?? null, tierTracking: snapshot[0]?.tier_tracking ?? null, marketPricing: snapshot[0]?.market_pricing ?? null })
   } catch (err) {
     return res.status(500).json({ error: err.message })
   }
@@ -627,11 +658,13 @@ export default async function handler(req, res) {
   try {
     const { signals, errors } = await gatherSignals()
     const material = computeMaterialState(signals)
+    const marketPricing = extractMarketPricing(signals)
     const inputHash = JSON.stringify(material)
 
     const lastSnapshot = await readLastSnapshot()
     const confirmed = lastSnapshot?.material ?? null
     const pending = lastSnapshot?.pending ?? null
+    const tierTracking = updateTierTracking(lastSnapshot?.tier_tracking, signals.chokepoints)
 
     // Full-scan always looks at the complete dataset and, since it's a full
     // fresh look-through, resets confirmed to current values across every
@@ -641,7 +674,7 @@ export default async function handler(req, res) {
 
     // ── Gated skip: no material change, not forced, not a full scan ────────
     if (!scanFull && !force && !diff.changed) {
-      await writeLastSnapshot(gated.nextConfirmed, gated.nextPending, signals)
+      await writeLastSnapshot(gated.nextConfirmed, gated.nextPending, signals, tierTracking, marketPricing)
       const skipVerdict = {
         flagged: false, skipped: true, reason: 'no material change since last snapshot',
         pendingCategories: gated.pendingCategories,
@@ -675,8 +708,8 @@ export default async function handler(req, res) {
     const runRecordError = await insertRunRecord({ runType, verdict, inputHash, errors, diff: diff.deltas, tokenUsage })
     // Full-scan: promote everything, clear all pending. Gated-triggered:
     // gated.nextConfirmed/nextPending already reflect the hysteresis outcome.
-    if (scanFull) await writeLastSnapshot(material, {}, signals)
-    else await writeLastSnapshot(gated.nextConfirmed, gated.nextPending, signals)
+    if (scanFull) await writeLastSnapshot(material, {}, signals, tierTracking, marketPricing)
+    else await writeLastSnapshot(gated.nextConfirmed, gated.nextPending, signals, tierTracking, marketPricing)
 
     return res.status(200).json({
       ...result, diff: diff.deltas, upsertedSignal: upserted?.slug ?? null, upsertError, runRecordError, sourceErrors: errors,
