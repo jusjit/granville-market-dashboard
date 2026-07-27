@@ -285,10 +285,17 @@ App.jsx
   gemini routinely needs 40-60s and intermittently exceeds 60s). `vercel.json`
   sets `maxDuration: 300` for this function. Both workflow yml files have
   `curl --max-time 280`.
-- Edge-detector prompt (flag >30% unpriced risks); strict-JSON verdict.
-  Prompt explicitly specifies INTEGER 0-100 for confidence and
-  alma_reversion_confidence (gemini was returning 0-1 scale without this).
-  No API-level prompt-caching lever in 1min.ai — checked 2026-07-12.
+- **Prompt design** (updated 2026-07-26): geo-only edge-detector — assesses
+  risk purely from geopolitical, conflict, and supply-chain signals. Market
+  pricing (VIX, HY OAS, USD/JPY, WTI) is explicitly excluded from the LLM's
+  severity scoring and considered/excluded reasoning (was previously used as
+  a gating filter — "flag ONLY if the market hasn't fully priced it yet" —
+  which suppressed valid flags when VIX was low). Market data is still
+  fetched from FRED but stored separately as `market_pricing` in the
+  snapshot and displayed as an independent comparison panel in the dashboard.
+  Prompt specifies INTEGER 0-100 for confidence and alma_reversion_confidence
+  (gemini returns 0-1 scale without this). No API-level prompt-caching lever
+  in 1min.ai — checked 2026-07-12.
 - flagged=true → upsert `geopolitical_signals` (history trigger appends transitions);
   `current_regime` VIEW is what the dashboard will eventually read as a gate/weight
   on Granville timing rules (never an entry signal). Cross-repo wiring is a future step.
@@ -321,8 +328,9 @@ Three run modes, tagged via `geo_regime_runs.run_type`:
 - `?force=1` bypasses the gate but stays in gated-triggered (delta) mode — for
   manually testing the routine path without waiting for a real change.
 - Threshold constants live in `THRESHOLDS` at the top of the file (chokepoint
-  disruption score, CII points, UCDP event/death counts, FRED move sizes,
-  etc.) — tunable, flagged as such in the code.
+  disruption score, CII points, UCDP event/death counts, shipping change %,
+  theater active flights) — tunable, flagged as such in the code. FRED/market
+  thresholds removed 2026-07-26 when market data was decoupled from diffing.
 - **Real measured token usage** (2026-07-12, claude-sonnet-4-6 via 1min.ai,
   from `aiRecord.metadata` — not estimated): full-scan ≈ 20.8K input / 23.2K
   total tokens per call. Gated-triggered with only 1 of 11 categories changed
@@ -339,8 +347,9 @@ Three run modes, tagged via `geo_regime_runs.run_type`:
   `theaterPosture` vs `posture`, `riskScores` vs `cii`, `crossSourceSignals`
   vs `crossSource`, `ucdpSummary` vs `ucdp`, `wtiSpot` vs `wti`). The delta
   prompt builder originally checked changed-category membership using the
-  wrong key namespace, silently summarizing those 6 categories even when they
-  materially changed. Fixed via an explicit `SIGNAL_TO_MATERIAL_KEY` map;
+  wrong key namespace, silently summarizing those categories even when they
+  materially changed. Fixed via an explicit `SIGNAL_TO_MATERIAL_KEY` map
+  (now 7 geo-only keys after market data was decoupled 2026-07-26);
   verified by asserting `JSON.stringify(fullPayload).length ===
   JSON.stringify(signals).length` when every category is flagged changed.
   Watch for this class of bug if either object's key set changes again.
@@ -392,17 +401,37 @@ Fixes (in `THRESHOLDS`, `HYSTERESIS_CATEGORIES`, `resolveGatedDiff()`,
 ### Geo Regime Panel (shipped 2026-07-22)
 
 Collapsible panel on private dashboard (`VITE_SHOW_GEO_REGIME=true`), renders
-between Reference Data and Alma. Three sections:
+between Reference Data and Alma. Six sections (top to bottom):
 1. **Regime Summary** — severity tiles per implication type (Oil Shock, Carry
    Unwind, Equity Drawdown, Safe Haven, Freight Shock) with escalating count.
    Derived client-side from all `geopolitical_signals` rows (the `current_regime`
    Supabase view returns null due to PostgREST permissions — client derivation
    is the workaround).
-2. **Monitored Signals** — the 5 seed signals (non-`llm-*` slugs: Hormuz,
+2. **Stale Risk Tiers** (added 2026-07-26) — amber warning box listing
+   chokepoints whose upstream `warRiskTier` hasn't changed in 14+ days.
+   Tier tracking stored in `geo_regime_last_snapshot.tier_tracking` (jsonb,
+   per-chokepoint `{tier, first_seen_at, last_changed_at}`). The 4 tracked
+   chokepoints are hormuz_strait, bab_el_mandeb, suez, taiwan_strait.
+   `warRiskTier` is manually configured in worldmonitor's
+   `get-chokepoint-status.ts` — the staleness warning is a correctness
+   safeguard, not an auto-update mechanism.
+3. **Market Pricing** (added 2026-07-26) — 4-tile grid (WTI, VIX, HY OAS,
+   USD/JPY) from FRED, clearly labeled as independent from geo scoring.
+   Stored in `geo_regime_last_snapshot.market_pricing` (jsonb). The design
+   intent: "geo risk is escalating AND market hasn't priced it" vs "geo risk
+   is escalating AND market has already priced it" should be two things the
+   user compares, not a pre-blended LLM verdict.
+4. **Breaking Headlines** (added 2026-07-26) — client-side GDELT fetch
+   (no Vercel function slot used), keyword-filtered to monitored corridors
+   (hormuz, bab el-mandeb, houthi, red sea, taiwan strait, south china sea).
+   20-min auto-refresh, 3 headlines default with expand-to-8. Not fed into
+   scoring — separate unprocessed fast layer alongside the slow structural
+   pipeline. GDELT has aggressive rate limits; the 20-min interval is safe.
+5. **Monitored Signals** — the 5 seed signals (non-`llm-*` slugs: Hormuz,
    Bab el-Mandeb, Taiwan, BOJ, Semis) as compact cards with category, state,
    and market implication. LLM-generated `AI flag:` signals are rolled into
    the regime summary severity tiles rather than listed individually.
-3. **Recent Runs** — 10 expandable cards showing run type (full-scan/gated-
+6. **Recent Runs** — 10 expandable cards showing run type (full-scan/gated-
    triggered/gated-skip), flagged status, synthesis (verdict reasoning +
    transmission chain + confidence), what changed (diff keys), considered
    categories, excluded categories with per-category reasoning, token usage,
