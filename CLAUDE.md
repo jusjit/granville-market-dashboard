@@ -279,12 +279,13 @@ App.jsx
   ~180-250K per call), comparable analytical depth. No Claude Haiku available
   on 1min.ai. gpt-4o-mini rejected for noticeably shallow output. `MODEL`
   constant at the top of the file — change there to swap models.
-- **Retry + timeout**: single retry with 3s backoff (`callOneMin` wraps
-  `callOneMinOnce`). Each attempt capped at 120s via `AbortSignal.timeout`
-  (raised from 60s on 2026-07-21 after 3 double-timeout failures in one day —
-  gemini routinely needs 40-60s and intermittently exceeds 60s). `vercel.json`
-  sets `maxDuration: 300` for this function. Both workflow yml files have
-  `curl --max-time 280`.
+- **Retry + timeout**: 3 attempts with increasing backoff (0s, 3s, 6s).
+  Each attempt capped at 120s via `AbortSignal.timeout` (raised from 60s
+  on 2026-07-21 — gemini routinely needs 40-60s). Worst case ~369s LLM +
+  ~30s signal gathering. `vercel.json` sets `maxDuration: 480` for this
+  function. Both workflow yml files have `curl --max-time 460`. Third
+  retry added 2026-07-27 after ~20% cron failure rate from back-to-back
+  1min.ai transient 500s/timeouts.
 - **Prompt design** (updated 2026-07-26): geo-only edge-detector — assesses
   risk purely from geopolitical, conflict, and supply-chain signals. Market
   pricing (VIX, HY OAS, USD/JPY, WTI) is explicitly excluded from the LLM's
