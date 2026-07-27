@@ -486,22 +486,20 @@ async function callOneMinOnce(prompt, key, model) {
 // window for a transient 1min.ai/Gemini gateway hiccup — a single retry
 // absorbs that within the same invocation instead of waiting hours and
 // firing a failure email in between. Each attempt is capped at 120s (see
-// AbortSignal.timeout in callOneMinOnce — raised from 60s on 2026-07-21
-// after 3 double-timeout failures in one day; gemini regularly needs 40-60s
-// and intermittently exceeds 60s) so a hang can't silently eat the whole
-// budget; worst case is ~120s + 3s backoff + ~120s + gatherSignals()'s
-// own time, which is why vercel.json's maxDuration is set to 300.
+// AbortSignal.timeout in callOneMinOnce). 3 attempts with increasing
+// backoff (0s, 3s, 6s); worst case ~120+3+120+6+120 = 369s + gatherSignals
+// ~30s ≈ 400s, hence vercel.json maxDuration=480.
 async function callOneMin(prompt, key, model = MODEL) {
-  try {
-    return await callOneMinOnce(prompt, key, model)
-  } catch (firstErr) {
-    await sleep(3000)
+  const errors = []
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
+      if (attempt > 0) await sleep(3000 * attempt)
       return await callOneMinOnce(prompt, key, model)
-    } catch (secondErr) {
-      throw new Error(`1min.ai failed twice — first: ${firstErr.message} | retry: ${secondErr.message}`)
+    } catch (e) {
+      errors.push(e.message)
     }
   }
+  throw new Error(`1min.ai failed 3× — ${errors.join(' | ')}`)
 }
 
 function sb() {
