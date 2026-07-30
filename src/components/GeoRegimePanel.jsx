@@ -483,12 +483,18 @@ function RunCard({ run, expanded, onToggle }) {
                 Excluded ({dismissedKeys.length})
               </p>
               <div className="space-y-1">
-                {dismissedKeys.map(k => (
-                  <div key={k} className="flex gap-2 text-[10px]">
-                    <Tip term={k}><span className="text-slate-400 shrink-0">{k}</span></Tip>
-                    <span className="text-slate-500">{dismissed[k]}</span>
-                  </div>
-                ))}
+                {dismissedKeys.map(k => {
+                  const val = dismissed[k]
+                  const text = typeof val === 'string' ? val
+                    : typeof val === 'object' && val !== null ? Object.entries(val).map(([subK, subV]) => `${subK}: ${subV}`).join('; ')
+                    : String(val)
+                  return (
+                    <div key={k} className="flex gap-2 text-[10px]">
+                      <Tip term={k}><span className="text-slate-400 shrink-0">{k}</span></Tip>
+                      <span className="text-slate-500">{text}</span>
+                    </div>
+                  )
+                })}
               </div>
             </div>
           )}
