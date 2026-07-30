@@ -1,5 +1,24 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, Component } from 'react'
 import { ChevronDown } from 'lucide-react'
+
+class GeoErrorBoundary extends Component {
+  constructor(props) { super(props); this.state = { error: null } }
+  static getDerivedStateFromError(error) { return { error } }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="rounded-xl border border-red-900/40 bg-red-950/20 px-5 py-3 text-sm text-red-400">
+          <p className="font-semibold mb-1">Geo Regime render error</p>
+          <p className="text-xs text-red-400/70 font-mono break-all">{this.state.error.message}</p>
+          <button onClick={() => this.setState({ error: null })} className="text-xs text-slate-400 mt-2 hover:text-slate-200">
+            Retry
+          </button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
 
 /* ── Glossary tooltips ── */
 
@@ -559,58 +578,60 @@ export default function GeoRegimePanel({ data, loading, error }) {
       </button>
 
       {!collapsed && (
-        <div className="space-y-4">
-          {loading && (
-            <div className="rounded-xl border border-slate-800 bg-slate-900/40 px-5 py-6 text-center text-sm text-slate-600 animate-pulse">
-              Loading geo regime…
-            </div>
-          )}
-
-          {error && (
-            <div className="rounded-xl border border-red-900/40 bg-red-950/20 px-5 py-3 text-sm text-red-400">
-              Geo regime unavailable — {error}
-            </div>
-          )}
-
-          {!loading && !error && (
-            <>
-              <RegimeSummary allSignals={allSignals} latestRun={latestRun} />
-
-              <TierStaleness tierTracking={data?.tierTracking} />
-
-              <MarketPricing marketPricing={data?.marketPricing} />
-
-              <Headlines />
-
-              <StandingSignals signals={standingSignals} />
-
-              {aiSignalCount > 0 && (
-                <p className="text-[9px] text-slate-600 -mt-2">
-                  + {aiSignalCount} LLM-generated flag{aiSignalCount !== 1 ? 's' : ''} in signal history (severity drives regime summary above)
-                </p>
-              )}
-
-              <div>
-                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
-                  Recent Runs ({runs.length})
-                </p>
-                <div className="space-y-1">
-                  {runs.map(run => (
-                    <RunCard
-                      key={run.id}
-                      run={run}
-                      expanded={expandedRun === run.id}
-                      onToggle={() => setExpandedRun(prev => prev === run.id ? null : run.id)}
-                    />
-                  ))}
-                </div>
-                {runs.length === 0 && (
-                  <p className="text-[11px] text-slate-600">No runs recorded yet — the 4-hourly cron populates this.</p>
-                )}
+        <GeoErrorBoundary>
+          <div className="space-y-4">
+            {loading && (
+              <div className="rounded-xl border border-slate-800 bg-slate-900/40 px-5 py-6 text-center text-sm text-slate-600 animate-pulse">
+                Loading geo regime…
               </div>
-            </>
-          )}
-        </div>
+            )}
+
+            {error && (
+              <div className="rounded-xl border border-red-900/40 bg-red-950/20 px-5 py-3 text-sm text-red-400">
+                Geo regime unavailable — {error}
+              </div>
+            )}
+
+            {!loading && !error && (
+              <>
+                <RegimeSummary allSignals={allSignals} latestRun={latestRun} />
+
+                <TierStaleness tierTracking={data?.tierTracking} />
+
+                <MarketPricing marketPricing={data?.marketPricing} />
+
+                <Headlines />
+
+                <StandingSignals signals={standingSignals} />
+
+                {aiSignalCount > 0 && (
+                  <p className="text-[9px] text-slate-600 -mt-2">
+                    + {aiSignalCount} LLM-generated flag{aiSignalCount !== 1 ? 's' : ''} in signal history (severity drives regime summary above)
+                  </p>
+                )}
+
+                <div>
+                  <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+                    Recent Runs ({runs.length})
+                  </p>
+                  <div className="space-y-1">
+                    {runs.map(run => (
+                      <RunCard
+                        key={run.id}
+                        run={run}
+                        expanded={expandedRun === run.id}
+                        onToggle={() => setExpandedRun(prev => prev === run.id ? null : run.id)}
+                      />
+                    ))}
+                  </div>
+                  {runs.length === 0 && (
+                    <p className="text-[11px] text-slate-600">No runs recorded yet — the 4-hourly cron populates this.</p>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </GeoErrorBoundary>
       )}
     </div>
   )
