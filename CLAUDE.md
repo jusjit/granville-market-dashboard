@@ -435,15 +435,16 @@ between Reference Data and Alma. Six sections (top to bottom):
    Bab el-Mandeb, Taiwan, BOJ, Semis) as compact cards with category, state,
    and market implication. LLM-generated `AI flag:` signals are rolled into
    the regime summary severity tiles rather than listed individually.
-6. **Recent Runs** — 10 expandable cards showing run type (full-scan/gated-
-   triggered/gated-skip), flagged status, synthesis (verdict reasoning +
-   transmission chain + confidence), what changed (diff keys), considered
-   categories, excluded categories with per-category reasoning, token usage,
-   and source errors. Technical term badges in "What changed", "Considered",
-   and "Excluded" sections have hover tooltips (added 2026-07-27) via a
-   `GLOSSARY` map + `Tip` component — covers ucdp, cii, crossSource, posture,
-   shipping, chokepoint, flowRatio, warRiskTier, run types, and all implication
-   keys. Dotted underline indicates hoverable terms.
+6. **Recent Runs** — 10 expandable cards, Minto pyramid layout (redesigned
+   2026-07-27). Collapsed header shows bottom line: flagged risk category +
+   confidence, "Clear", or "No change" — scannable without expanding.
+   Expanding shows synthesis reasoning first (the "why"), then inline
+   "Changed:" badges, then a collapsed "N included · N excluded" detail
+   toggle for the full considered/excluded lists with per-category reasoning
+   and token usage. Technical term badges have hover tooltips (added
+   2026-07-27) via `GLOSSARY` map + `Tip` component — covers ucdp, cii,
+   crossSource, posture, shipping, chokepoint, flowRatio, warRiskTier, run
+   types, and all implication keys. Dotted underline indicates hoverable terms.
 
 **Files**:
 - `api/aggregate-geo-regime.js` — unauthenticated GET returns read-only regime
