@@ -404,7 +404,7 @@ function StandingSignals({ signals }) {
   )
 }
 
-/* ── Section 4: Recent Runs (expandable cards) ── */
+/* ── Section 4: Recent Runs (Minto pyramid: bottom line → why → detail) ── */
 
 function RunCard({ run, expanded, onToggle }) {
   const verdict = run.verdict ?? {}
@@ -413,9 +413,13 @@ function RunCard({ run, expanded, onToggle }) {
   const dismissedKeys = Object.keys(dismissed)
   const diff = run.diff ?? {}
   const diffKeys = Object.keys(diff)
+  const [showDetail, setShowDetail] = useState(false)
+
+  const isSkip = run.run_type === 'gated-skip'
 
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-950/40">
+    <div className={`rounded-lg border ${run.flagged ? 'border-red-900/40 bg-red-950/10' : 'border-slate-800 bg-slate-950/40'}`}>
+      {/* ── Row 1: Bottom line (always visible) ── */}
       <button
         onClick={onToggle}
         className="w-full px-3 py-2 flex items-center gap-2 text-left hover:bg-slate-800/30 transition-colors rounded-lg"
@@ -425,113 +429,121 @@ function RunCard({ run, expanded, onToggle }) {
           className="text-slate-600 shrink-0"
           style={{ transform: expanded ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 0.15s' }}
         />
-        <span className="text-[11px] text-slate-400 font-mono">{fmtTime(run.evaluated_at)}</span>
-        <RunTypeBadge type={run.run_type} />
-        {run.flagged && (
-          <span className="px-1.5 py-0.5 rounded text-[10px] bg-red-950/50 border border-red-800/40 text-red-300">
-            flagged
+        <span className="text-[11px] text-slate-500 font-mono shrink-0">{fmtTime(run.evaluated_at)}</span>
+
+        {run.flagged ? (
+          <span className="text-[11px] text-red-300 truncate">
+            <span className="font-semibold">{run.risk_category ?? 'flagged'}</span>
+            {run.confidence > 0 && <span className="text-red-400/70"> · {run.confidence}%</span>}
           </span>
+        ) : isSkip ? (
+          <span className="text-[11px] text-slate-500">No change</span>
+        ) : (
+          <span className="text-[11px] text-emerald-500">Clear</span>
         )}
-        {run.flagged && run.risk_category && (
-          <span className="text-[10px] text-red-400 truncate">{run.risk_category}</span>
-        )}
-        {!run.flagged && run.run_type !== 'gated-skip' && (
-          <span className="text-[10px] text-emerald-500">clear</span>
-        )}
-        <span className="ml-auto text-[10px] text-slate-600">{fmtAgo(run.evaluated_at)}</span>
+
+        <span className="ml-auto flex items-center gap-1.5 shrink-0">
+          <RunTypeBadge type={run.run_type} />
+          <span className="text-[10px] text-slate-600">{fmtAgo(run.evaluated_at)}</span>
+        </span>
       </button>
 
       {expanded && (
-        <div className="px-3 pb-3 space-y-2.5 border-t border-slate-800/60">
-          {run.run_type !== 'gated-skip' && verdict.reasoning && (
-            <div className="mt-2">
-              <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Synthesis</p>
+        <div className="px-3 pb-3 border-t border-slate-800/60">
+          {/* ── Row 2: Why — the synthesis (Minto "situation + complication") ── */}
+          {!isSkip && verdict.reasoning && (
+            <div className="mt-2 mb-2">
               <p className="text-[11px] text-slate-300 leading-relaxed">{verdict.reasoning}</p>
               {verdict.transmission_chain && (
-                <p className="text-[11px] text-slate-400 mt-1">
-                  <span className="text-slate-500">Chain:</span> {verdict.transmission_chain}
-                </p>
-              )}
-              {run.confidence > 0 && (
-                <p className="text-[11px] text-slate-400 mt-0.5">
-                  <span className="text-slate-500">Confidence:</span> {run.confidence}%
+                <p className="text-[10px] text-slate-500 mt-1">
+                  <span className="font-medium text-slate-400">Transmission:</span> {verdict.transmission_chain}
                 </p>
               )}
             </div>
           )}
 
-          {run.run_type === 'gated-skip' && (
-            <p className="mt-2 text-[11px] text-slate-500 italic">No LLM call — material state unchanged since last snapshot.</p>
+          {isSkip && (
+            <p className="mt-2 mb-2 text-[11px] text-slate-500 italic">No material change since last snapshot — LLM not called.</p>
           )}
 
+          {/* ── Row 3: What moved (compact inline summary) ── */}
           {diffKeys.length > 0 && (
-            <div>
-              <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">What changed</p>
-              <div className="flex flex-wrap gap-1">
-                {diffKeys.map(k => (
-                  <Tip key={k} term={k}>
-                    <span className="px-1.5 py-0.5 rounded text-[10px] bg-amber-950/40 border border-amber-800/30 text-amber-300">
-                      {k}
-                    </span>
-                  </Tip>
-                ))}
-              </div>
+            <div className="flex items-center gap-1.5 flex-wrap mb-2">
+              <span className="text-[10px] text-slate-500 shrink-0">Changed:</span>
+              {diffKeys.map(k => (
+                <Tip key={k} term={k}>
+                  <span className="px-1.5 py-0.5 rounded text-[10px] bg-amber-950/40 border border-amber-800/30 text-amber-300">
+                    {k}
+                  </span>
+                </Tip>
+              ))}
             </div>
           )}
 
-          {considered.length > 0 && (
+          {/* ── Row 4: Detail toggle (considered + excluded + metadata) ── */}
+          {(considered.length > 0 || dismissedKeys.length > 0) && (
             <div>
-              <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">
-                Considered ({considered.length})
-              </p>
-              <div className="flex flex-wrap gap-1">
-                {considered.map(c => (
-                  <Tip key={c} term={c}>
-                    <span className="px-1.5 py-0.5 rounded text-[10px] bg-slate-800/60 border border-slate-700/40 text-slate-300">
-                      {c}
-                    </span>
-                  </Tip>
-                ))}
-              </div>
-            </div>
-          )}
+              <button
+                onClick={() => setShowDetail(v => !v)}
+                className="text-[10px] text-slate-600 hover:text-slate-400 transition-colors flex items-center gap-1"
+              >
+                <ChevronDown
+                  size={10}
+                  style={{ transform: showDetail ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 0.15s' }}
+                />
+                {considered.length} included · {dismissedKeys.length} excluded
+              </button>
 
-          {dismissedKeys.length > 0 && (
-            <div>
-              <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">
-                Excluded ({dismissedKeys.length})
-              </p>
-              <div className="space-y-1">
-                {dismissedKeys.map(k => {
-                  const val = dismissed[k]
-                  const text = typeof val === 'string' ? val
-                    : typeof val === 'object' && val !== null ? Object.entries(val).map(([subK, subV]) => `${subK}: ${subV}`).join('; ')
-                    : String(val)
-                  return (
-                    <div key={k} className="flex gap-2 text-[10px]">
-                      <Tip term={k}><span className="text-slate-400 shrink-0">{k}</span></Tip>
-                      <span className="text-slate-500">{text}</span>
+              {showDetail && (
+                <div className="mt-1.5 space-y-2 pl-3 border-l border-slate-800/60">
+                  {considered.length > 0 && (
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[10px] text-slate-500 shrink-0">Included:</span>
+                      {considered.map(c => (
+                        <Tip key={c} term={c}>
+                          <span className="px-1.5 py-0.5 rounded text-[10px] bg-slate-800/60 border border-slate-700/40 text-slate-300">
+                            {c}
+                          </span>
+                        </Tip>
+                      ))}
                     </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
+                  )}
 
-          {run.token_usage && (
-            <p className="text-[10px] text-slate-600">
-              {run.token_usage.inputToken?.toLocaleString()} in / {run.token_usage.totalToken?.toLocaleString()} total tokens
-              {run.token_usage.credit != null && ` · ${run.token_usage.credit} credits`}
-            </p>
+                  {dismissedKeys.length > 0 && (
+                    <div>
+                      <span className="text-[10px] text-slate-500">Excluded:</span>
+                      <div className="mt-0.5 space-y-0.5">
+                        {dismissedKeys.map(k => {
+                          const val = dismissed[k]
+                          const text = typeof val === 'string' ? val
+                            : typeof val === 'object' && val !== null ? Object.entries(val).map(([subK, subV]) => `${subK}: ${subV}`).join('; ')
+                            : String(val)
+                          return (
+                            <div key={k} className="flex gap-1.5 text-[10px]">
+                              <Tip term={k}><span className="text-slate-400 shrink-0">{k}</span></Tip>
+                              <span className="text-slate-600">— {text}</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {run.token_usage && (
+                    <p className="text-[9px] text-slate-700">
+                      {run.token_usage.inputToken?.toLocaleString()} in / {run.token_usage.totalToken?.toLocaleString()} total tokens
+                      {run.token_usage.credit != null && ` · ${run.token_usage.credit} credits`}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
           )}
 
           {run.source_errors?.length > 0 && (
-            <div>
-              <p className="text-[10px] font-semibold text-red-500 uppercase tracking-wider mb-0.5">Source errors</p>
-              {run.source_errors.map((e, i) => (
-                <p key={i} className="text-[10px] text-red-400/70">{e}</p>
-              ))}
-            </div>
+            <p className="text-[10px] text-red-400/70 mt-1.5">
+              Source errors: {run.source_errors.join(', ')}
+            </p>
           )}
         </div>
       )}
