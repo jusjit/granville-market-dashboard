@@ -342,7 +342,7 @@ The edge is catching this ahead of confirmation, so bias toward earlier/lower-co
 
 Additionally, evaluate EVERY signal category in the data (chokepoints, conflict/UCDP by country, cross-source convergence signals, CII per country, supply chain stress) and report your reasoning per category — including the ones you did NOT flag — so every run is a labeled data point.
 
-Output strict JSON: {flagged: boolean, risk_category: string, confidence: INTEGER 0-100 (NOT a 0-1 probability — e.g. 65, not 0.65), transmission_chain: string, relevant_signals: string[], granville_modifier: {position_size_cap: number between 0 and 1, alma_reversion_confidence: INTEGER 0-100 (NOT a 0-1 probability — e.g. 28, not 0.28)}, categories_considered: string[], categories_dismissed_reason: {<category>: "one-line reason not flagged"}}`
+Output strict JSON: {flagged: boolean, risk_category: string, confidence: INTEGER 0-100 (NOT a 0-1 probability — e.g. 65, not 0.65), transmission_chain: string, relevant_signals: string[], granville_modifier: {position_size_cap: number between 0 and 1, alma_reversion_confidence: INTEGER 0-100 (NOT a 0-1 probability — e.g. 28, not 0.28)}, categories_considered: string[], categories_dismissed_reason: {<category>: "one-line reason not flagged"}, briefing: {bottom_line: "one sentence — the single most important situational takeaway right now, pure geopolitical, NO market-implication language", themes: [{region: "geographic area or corridor", situation: "2-3 sentence plain-language assessment of what is happening and why it matters", sources_confirmed: ["which data sources corroborate this"]}]}}`
 
 // NOTE on 1min.ai prompt caching (checked 2026-07-12): the chat-with-ai
 // promptObject schema (see settings: withMemories/historySettings/
@@ -613,25 +613,35 @@ async function insertRunRecord({ runType, verdict, inputHash, errors, diff, toke
   } catch (e) { return e.message }
 }
 
-async function handleReadOnly(res) {
+async function handleReadOnly(req, res) {
   const c = sb()
   if (!c) return res.status(500).json({ error: 'Supabase not configured' })
   try {
     const limit = 10
-    const [runsRes, signalsRes, regimeRes, snapshotRes] = await Promise.all([
+    const window = Math.min(Math.max(parseInt(req.query?.window) || 0, 0), 30)
+    const fetches = [
       fetch(`${c.url}/rest/v1/geo_regime_runs?select=id,evaluated_at,run_type,flagged,confidence,risk_category,categories_considered,categories_dismissed_reason,verdict,diff,token_usage,source_errors&order=evaluated_at.desc&limit=${limit}`, { headers: c.headers }),
       fetch(`${c.url}/rest/v1/geopolitical_signals?select=*&order=severity.desc`, { headers: c.headers }),
       fetch(`${c.url}/rest/v1/current_regime?select=*&limit=1`, { headers: c.headers }),
       fetch(`${c.url}/rest/v1/geo_regime_last_snapshot?id=eq.1&select=tier_tracking,market_pricing`, { headers: c.headers }),
-    ])
+    ]
+    if (window > 0) {
+      const trajLimit = window * 6
+      fetches.push(
+        fetch(`${c.url}/rest/v1/geo_regime_runs?select=evaluated_at,run_type,flagged,confidence,risk_category&order=evaluated_at.desc&limit=${trajLimit}`, { headers: c.headers })
+      )
+    }
+    const results = await Promise.all(fetches)
+    const [runsRes, signalsRes, regimeRes, snapshotRes] = results
     const [runs, signals, regime, snapshot] = await Promise.all([
       runsRes.ok ? runsRes.json() : [],
       signalsRes.ok ? signalsRes.json() : [],
       regimeRes.ok ? regimeRes.json() : [],
       snapshotRes.ok ? snapshotRes.json() : [],
     ])
+    const trajectory = window > 0 && results[4]?.ok ? await results[4].json() : []
     res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=120')
-    return res.status(200).json({ runs, signals, regime: regime[0] ?? null, tierTracking: snapshot[0]?.tier_tracking ?? null, marketPricing: snapshot[0]?.market_pricing ?? null })
+    return res.status(200).json({ runs, signals, regime: regime[0] ?? null, tierTracking: snapshot[0]?.tier_tracking ?? null, marketPricing: snapshot[0]?.market_pricing ?? null, trajectory })
   } catch (err) {
     return res.status(500).json({ error: err.message })
   }
@@ -641,7 +651,7 @@ export default async function handler(req, res) {
   if (req.method !== 'GET' && req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
   // Unauthenticated GET = read-only regime data for the dashboard frontend
-  if (req.method === 'GET' && !req.headers.authorization) return handleReadOnly(res)
+  if (req.method === 'GET' && !req.headers.authorization) return handleReadOnly(req, res)
 
   const secret = process.env.SNAPSHOT_SECRET
   if (!secret) return res.status(500).json({ error: 'SNAPSHOT_SECRET not configured' })

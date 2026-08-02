@@ -120,7 +120,384 @@ function fmtTime(iso) {
   })
 }
 
-/* ── Section 1: Regime Summary (from current_regime view) ── */
+/* ═══════════════════════════════════════════════════════════════════════
+   MAIN VIEW — World Briefing + Trajectory + Market Pricing + Headlines
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ── World Briefing (Minto pyramid: bottom line → theme detail) ── */
+
+function WorldBriefing({ latestRun }) {
+  const briefing = latestRun?.verdict?.briefing
+  if (!briefing) {
+    return (
+      <div className="rounded-xl border border-slate-800 bg-slate-900/30 px-4 py-3">
+        <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">World Briefing</p>
+        <p className="text-[11px] text-slate-600 italic">Briefing unavailable for this run — will appear after the next LLM assessment.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-xl border border-indigo-900/30 bg-indigo-950/10 px-4 py-3">
+      <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2">World Briefing</p>
+      <p className="text-[13px] text-slate-200 font-semibold leading-snug mb-3">{briefing.bottom_line}</p>
+      {briefing.themes?.length > 0 && (
+        <div className="space-y-2">
+          {briefing.themes.map((t, i) => (
+            <div key={i} className="rounded-lg border border-slate-800/60 bg-slate-900/30 px-3 py-2">
+              <p className="text-[11px] font-semibold text-slate-300 mb-0.5">{t.region}</p>
+              <p className="text-[11px] text-slate-400 leading-relaxed">{t.situation}</p>
+              {t.sources_confirmed?.length > 0 && (
+                <div className="flex items-center gap-1 mt-1.5">
+                  <span className="text-[9px] text-slate-600">Sources:</span>
+                  {t.sources_confirmed.map((s, j) => (
+                    <Tip key={j} term={s}>
+                      <span className="px-1 py-0.5 rounded text-[9px] bg-slate-800/60 border border-slate-700/40 text-slate-500">
+                        {s}
+                      </span>
+                    </Tip>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {latestRun && (
+        <p className="text-[9px] text-slate-600 mt-2">
+          Based on {latestRun.run_type} · {fmtAgo(latestRun.evaluated_at)}
+        </p>
+      )}
+    </div>
+  )
+}
+
+/* ── Trajectory Layer (7/14/30-day trend per theme) ── */
+
+const THEME_BUCKETS = [
+  { key: 'oil_energy', label: 'Oil / Energy', pattern: /oil|energy|hormuz|tanker|lng/i },
+  { key: 'carry_unwind', label: 'Carry Unwind', pattern: /carry|yen|boj|jpy/i },
+  { key: 'equity_drawdown', label: 'Equity Drawdown', pattern: /equity|drawdown|taiwan|conflict/i },
+  { key: 'safe_haven', label: 'Safe Haven', pattern: /haven|gold|flight.to.quality/i },
+  { key: 'freight_shock', label: 'Freight / Shipping', pattern: /freight|shipping|chokepoint|suez|red sea|mandeb/i },
+]
+
+function bucketTheme(riskCategory) {
+  if (!riskCategory) return 'other'
+  for (const b of THEME_BUCKETS) {
+    if (b.pattern.test(riskCategory)) return b.key
+  }
+  return 'other'
+}
+
+function MiniSparkline({ points, color = 'text-slate-400', flagged = false }) {
+  if (!points || points.length < 2) {
+    return <span className="text-[9px] text-slate-700">—</span>
+  }
+  const w = 48, h = 18
+  const max = Math.max(...points, 1)
+  const min = Math.min(...points, 0)
+  const range = max - min || 1
+  const coords = points.map((v, i) => {
+    const x = (i / (points.length - 1)) * w
+    const y = h - ((v - min) / range) * (h - 2) - 1
+    return `${x},${y}`
+  }).join(' ')
+
+  const strokeClass = flagged ? 'stroke-red-400' : 'stroke-slate-400'
+
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="inline-block">
+      <polyline points={coords} fill="none" className={strokeClass} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function trendArrow(points) {
+  if (!points || points.length < 2) return { symbol: '—', color: 'text-slate-600' }
+  const first = points.slice(0, Math.ceil(points.length / 2))
+  const second = points.slice(Math.ceil(points.length / 2))
+  const avgFirst = first.reduce((a, b) => a + b, 0) / first.length
+  const avgSecond = second.reduce((a, b) => a + b, 0) / second.length
+  const diff = avgSecond - avgFirst
+  if (diff > 5) return { symbol: '↑', color: 'text-red-400' }
+  if (diff < -5) return { symbol: '↓', color: 'text-emerald-400' }
+  return { symbol: '→', color: 'text-slate-500' }
+}
+
+function TrajectoryLayer({ trajectory, headlineVolume }) {
+  const [windowDays, setWindowDays] = useState(7)
+
+  if (!trajectory || trajectory.length === 0) {
+    return (
+      <div className="rounded-xl border border-slate-800 bg-slate-900/30 px-4 py-3">
+        <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Trajectory</p>
+        <p className="text-[11px] text-slate-600 italic">Trajectory data will appear once enough runs have accumulated.</p>
+      </div>
+    )
+  }
+
+  const cutoff = Date.now() - windowDays * 86400000
+  const windowRuns = trajectory.filter(r => new Date(r.evaluated_at).getTime() >= cutoff)
+
+  const themeData = {}
+  for (const b of THEME_BUCKETS) themeData[b.key] = []
+
+  for (const run of windowRuns) {
+    if (!run.flagged) continue
+    const theme = bucketTheme(run.risk_category)
+    if (themeData[theme]) {
+      themeData[theme].push({ t: new Date(run.evaluated_at).getTime(), confidence: run.confidence ?? 0 })
+    }
+  }
+
+  const allConfidencePoints = windowRuns
+    .filter(r => r.confidence != null && r.run_type !== 'gated-skip')
+    .sort((a, b) => new Date(a.evaluated_at) - new Date(b.evaluated_at))
+    .map(r => r.confidence)
+
+  const flaggedCount = windowRuns.filter(r => r.flagged).length
+  const totalAssessed = windowRuns.filter(r => r.run_type !== 'gated-skip').length
+
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-900/30 px-4 py-3">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Trajectory</p>
+        <div className="flex gap-1">
+          {[7, 14, 30].map(d => (
+            <button
+              key={d}
+              onClick={() => setWindowDays(d)}
+              className={`px-2 py-0.5 rounded text-[10px] font-semibold border transition-colors ${
+                windowDays === d
+                  ? 'text-violet-300 bg-violet-950/40 border-violet-800/60'
+                  : 'text-slate-500 bg-slate-900/40 border-slate-800 hover:text-slate-300'
+              }`}
+            >
+              {d}d
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Overall confidence sparkline */}
+      <div className="flex items-center gap-2 mb-2 py-1 border-b border-slate-800/40">
+        <span className="text-[10px] text-slate-500 w-28 shrink-0">Overall confidence</span>
+        <MiniSparkline points={allConfidencePoints} flagged={flaggedCount > 0} />
+        {(() => { const t = trendArrow(allConfidencePoints); return <span className={`text-[11px] ${t.color}`}>{t.symbol}</span> })()}
+        <span className="text-[9px] text-slate-600 ml-auto">
+          {flaggedCount}/{totalAssessed} flagged
+        </span>
+      </div>
+
+      {/* Per-theme rows */}
+      <div className="space-y-1">
+        {THEME_BUCKETS.map(b => {
+          const points = themeData[b.key]
+            .sort((a, c) => a.t - c.t)
+            .map(p => p.confidence)
+          const hasFlagged = points.length > 0
+          const trend = trendArrow(points)
+          return (
+            <div key={b.key} className="flex items-center gap-2 py-0.5">
+              <span className="text-[10px] text-slate-500 w-28 shrink-0 truncate">{b.label}</span>
+              {hasFlagged ? (
+                <>
+                  <MiniSparkline points={points} flagged />
+                  <span className={`text-[11px] ${trend.color}`}>{trend.symbol}</span>
+                  <span className="text-[9px] text-slate-600 ml-auto">{points.length} flag{points.length !== 1 ? 's' : ''}</span>
+                </>
+              ) : (
+                <span className="text-[9px] text-slate-700">quiet</span>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* GDELT headline volume */}
+      {headlineVolume?.length > 0 && (
+        <div className="flex items-center gap-2 pt-1.5 mt-1.5 border-t border-slate-800/40">
+          <span className="text-[10px] text-slate-500 w-28 shrink-0">Headline volume</span>
+          <MiniSparkline points={headlineVolume.slice(-24).map(p => p.value)} />
+          {(() => { const t = trendArrow(headlineVolume.slice(-24).map(p => p.value)); return <span className={`text-[11px] ${t.color}`}>{t.symbol}</span> })()}
+          <span className="text-[9px] text-slate-600 ml-auto">GDELT</span>
+        </div>
+      )}
+
+      <p className="text-[9px] text-slate-600 mt-2">
+        {windowRuns.length} runs in {windowDays}d window · sparklines show LLM confidence over time
+      </p>
+    </div>
+  )
+}
+
+/* ── Market Pricing (unchanged) ── */
+
+function MarketPricing({ marketPricing }) {
+  if (!marketPricing) return null
+  const items = [
+    { key: 'wti', ...marketPricing.wti },
+    { key: 'vix', ...marketPricing.vix },
+    { key: 'hyOas', ...marketPricing.hyOas },
+    { key: 'yen', ...marketPricing.yen },
+  ].filter(i => i.value != null)
+
+  if (items.length === 0) return null
+
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-900/30 px-3 py-2">
+      <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+        Market Pricing <span className="normal-case font-normal text-slate-600">(independent — not used in geo scoring)</span>
+      </p>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        {items.map(i => (
+          <div key={i.key} className="rounded-lg border border-slate-800 bg-slate-950/40 px-2.5 py-1.5">
+            <p className="text-[9px] text-slate-500 uppercase tracking-wider">{i.label}</p>
+            <p className="text-sm font-semibold tabular-nums text-slate-300">
+              {typeof i.value === 'number' ? i.value.toFixed(2) : i.value}
+            </p>
+          </div>
+        ))}
+      </div>
+      <p className="text-[9px] text-slate-600 mt-1.5">
+        Compare against geo severity — these values do not influence the risk assessment.
+      </p>
+    </div>
+  )
+}
+
+/* ── Headlines (GDELT, broadened language) ── */
+
+const GDELT_QUERY = '(hormuz OR "bab el-mandeb" OR houthi OR "red sea" OR "taiwan strait" OR "south china sea")'
+const GDELT_URL = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(GDELT_QUERY)}&mode=artlist&maxrecords=8&format=json&sort=datedesc`
+const GDELT_VOL_URL = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(GDELT_QUERY)}&mode=timelinevol&format=json`
+const HEADLINE_REFRESH_MS = 20 * 60 * 1000
+
+function shortDomain(domain) {
+  return (domain ?? '').replace(/^www\./, '').split('.').slice(0, -1).join('.') || domain
+}
+
+function useHeadlines() {
+  const [headlines, setHeadlines] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [stale, setStale] = useState(false)
+
+  const refresh = useCallback(async () => {
+    setLoading(true)
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        if (attempt > 0) await new Promise(r => setTimeout(r, 2000 * attempt))
+        const r = await fetch(GDELT_URL)
+        if (r.status === 429) { continue }
+        if (!r.ok) throw new Error(`GDELT ${r.status}`)
+        const data = await r.json()
+        setHeadlines(data.articles ?? [])
+        setError(null)
+        setStale(false)
+        setLoading(false)
+        return
+      } catch (e) {
+        if (attempt === 2) {
+          setError(e.message)
+          setStale(prev => prev || headlines.length > 0)
+        }
+      }
+    }
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    refresh()
+    const id = setInterval(refresh, HEADLINE_REFRESH_MS)
+    return () => clearInterval(id)
+  }, [refresh])
+
+  return { headlines, loading, error, stale }
+}
+
+function useHeadlineVolume() {
+  const [volume, setVolume] = useState([])
+
+  useEffect(() => {
+    const fetchVol = async () => {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          if (attempt > 0) await new Promise(r => setTimeout(r, 2000 * attempt))
+          const r = await fetch(GDELT_VOL_URL)
+          if (r.status === 429) { continue }
+          if (!r.ok) return
+          const data = await r.json()
+          const timeline = data.timeline?.[0]?.data ?? []
+          setVolume(timeline.map(d => ({ date: d.date, value: d.value })))
+          return
+        } catch { /* retry */ }
+      }
+    }
+    const delay = setTimeout(fetchVol, 10000)
+    const id = setInterval(fetchVol, HEADLINE_REFRESH_MS)
+    return () => { clearTimeout(delay); clearInterval(id) }
+  }, [])
+
+  return volume
+}
+
+function gdeltTime(seendate) {
+  if (!seendate) return ''
+  const d = new Date(seendate.replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/, '$1-$2-$3T$4:$5:$6Z'))
+  const ms = Date.now() - d.getTime()
+  const mins = Math.floor(ms / 60000)
+  if (mins < 60) return `${mins}m`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h`
+  return `${Math.floor(hrs / 24)}d`
+}
+
+function Headlines() {
+  const { headlines, loading, error, stale } = useHeadlines()
+  const [expanded, setExpanded] = useState(false)
+  const visible = expanded ? headlines.slice(0, 8) : headlines.slice(0, 3)
+
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-900/30 px-3 py-2">
+      <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">
+        Breaking Headlines <span className="normal-case font-normal text-slate-600">(GDELT · refreshes every 20m · not used in scoring)</span>
+        {stale && <span className="text-amber-600 ml-1">(stale — refresh failed)</span>}
+      </p>
+      {loading && headlines.length === 0 && (
+        <p className="text-[10px] text-slate-600 animate-pulse">Loading headlines…</p>
+      )}
+      {error && headlines.length === 0 && (
+        <p className="text-[10px] text-red-400/70">Headlines unavailable — retried 3×, GDELT may be rate-limiting</p>
+      )}
+      {visible.length > 0 && (
+        <div className="space-y-0.5">
+          {visible.map((a, i) => (
+            <div key={i} className="flex items-baseline gap-1.5 text-[11px] leading-tight py-0.5">
+              <span className="text-slate-600 shrink-0 tabular-nums w-6 text-right">{gdeltTime(a.seendate)}</span>
+              <span className="text-slate-500 shrink-0 truncate max-w-[80px]">{shortDomain(a.domain)}</span>
+              <a href={a.url} target="_blank" rel="noopener noreferrer"
+                 className="text-slate-300 hover:text-slate-100 truncate transition-colors">
+                {a.title}
+              </a>
+            </div>
+          ))}
+        </div>
+      )}
+      {headlines.length > 3 && (
+        <button onClick={() => setExpanded(v => !v)}
+                className="text-[10px] text-slate-600 hover:text-slate-400 mt-1 transition-colors">
+          {expanded ? 'show fewer' : `+${headlines.length - 3} more`}
+        </button>
+      )}
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   DIAGNOSTICS VIEW — all former default content, collapsed
+   ═══════════════════════════════════════════════════════════════════════ */
 
 function deriveRegime(signals) {
   const buckets = {}
@@ -177,8 +554,6 @@ function RegimeSummary({ allSignals, latestRun }) {
   )
 }
 
-/* ── Section 2: Tier Staleness Warnings ── */
-
 const STALENESS_THRESHOLD_DAYS = 14
 const CHOKEPOINT_NAMES = {
   hormuz_strait: 'Hormuz',
@@ -234,144 +609,6 @@ function TierStaleness({ tierTracking }) {
   )
 }
 
-/* ── Section 3: Market Pricing (independent comparison layer) ── */
-
-function MarketPricing({ marketPricing }) {
-  if (!marketPricing) return null
-  const items = [
-    { key: 'wti', ...marketPricing.wti },
-    { key: 'vix', ...marketPricing.vix },
-    { key: 'hyOas', ...marketPricing.hyOas },
-    { key: 'yen', ...marketPricing.yen },
-  ].filter(i => i.value != null)
-
-  if (items.length === 0) return null
-
-  return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900/30 px-3 py-2">
-      <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
-        Market Pricing <span className="normal-case font-normal text-slate-600">(independent — not used in geo scoring)</span>
-      </p>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        {items.map(i => (
-          <div key={i.key} className="rounded-lg border border-slate-800 bg-slate-950/40 px-2.5 py-1.5">
-            <p className="text-[9px] text-slate-500 uppercase tracking-wider">{i.label}</p>
-            <p className="text-sm font-semibold tabular-nums text-slate-300">
-              {typeof i.value === 'number' ? i.value.toFixed(2) : i.value}
-            </p>
-          </div>
-        ))}
-      </div>
-      <p className="text-[9px] text-slate-600 mt-1.5">
-        Compare against geo severity above — these values do not influence the risk assessment.
-      </p>
-    </div>
-  )
-}
-
-/* ── Section 4: Breaking Headlines (client-side GDELT, no LLM) ── */
-
-const GDELT_QUERY = '(hormuz OR "bab el-mandeb" OR houthi OR "red sea" OR "taiwan strait" OR "south china sea") sourcelang:english'
-const GDELT_URL = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(GDELT_QUERY)}&mode=artlist&maxrecords=8&format=json&sort=datedesc`
-const HEADLINE_REFRESH_MS = 20 * 60 * 1000
-
-function shortDomain(domain) {
-  return (domain ?? '').replace(/^www\./, '').split('.').slice(0, -1).join('.') || domain
-}
-
-function useHeadlines() {
-  const [headlines, setHeadlines] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
-  const [stale, setStale] = useState(false)
-
-  const refresh = useCallback(async () => {
-    setLoading(true)
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        if (attempt > 0) await new Promise(r => setTimeout(r, 2000 * attempt))
-        const r = await fetch(GDELT_URL)
-        if (r.status === 429) { continue }
-        if (!r.ok) throw new Error(`GDELT ${r.status}`)
-        const data = await r.json()
-        setHeadlines(data.articles ?? [])
-        setError(null)
-        setStale(false)
-        setLoading(false)
-        return
-      } catch (e) {
-        if (attempt === 2) {
-          setError(e.message)
-          setStale(prev => prev || headlines.length > 0)
-        }
-      }
-    }
-    setLoading(false)
-  }, [])
-
-  useEffect(() => {
-    refresh()
-    const id = setInterval(refresh, HEADLINE_REFRESH_MS)
-    return () => clearInterval(id)
-  }, [refresh])
-
-  return { headlines, loading, error, stale }
-}
-
-function gdeltTime(seendate) {
-  if (!seendate) return ''
-  const d = new Date(seendate.replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/, '$1-$2-$3T$4:$5:$6Z'))
-  const ms = Date.now() - d.getTime()
-  const mins = Math.floor(ms / 60000)
-  if (mins < 60) return `${mins}m`
-  const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs}h`
-  return `${Math.floor(hrs / 24)}d`
-}
-
-function Headlines() {
-  const { headlines, loading, error, stale } = useHeadlines()
-  const [expanded, setExpanded] = useState(false)
-  const visible = expanded ? headlines.slice(0, 8) : headlines.slice(0, 3)
-
-  return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900/30 px-3 py-2">
-      <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">
-        Breaking Headlines <span className="normal-case font-normal text-slate-600">(GDELT · refreshes every 20m · not used in scoring)</span>
-        {stale && <span className="text-amber-600 ml-1">(stale — refresh failed)</span>}
-      </p>
-      {loading && headlines.length === 0 && (
-        <p className="text-[10px] text-slate-600 animate-pulse">Loading headlines…</p>
-      )}
-      {error && headlines.length === 0 && (
-        <p className="text-[10px] text-red-400/70">Headlines unavailable — retried 3×, GDELT may be rate-limiting</p>
-      )}
-      {visible.length > 0 && (
-        <div className="space-y-0.5">
-          {visible.map((a, i) => (
-            <div key={i} className="flex items-baseline gap-1.5 text-[11px] leading-tight py-0.5">
-              <span className="text-slate-600 shrink-0 tabular-nums w-6 text-right">{gdeltTime(a.seendate)}</span>
-              <span className="text-slate-500 shrink-0 truncate max-w-[80px]">{shortDomain(a.domain)}</span>
-              <a href={a.url} target="_blank" rel="noopener noreferrer"
-                 className="text-slate-300 hover:text-slate-100 truncate transition-colors">
-                {a.title}
-              </a>
-            </div>
-          ))}
-        </div>
-      )}
-      {headlines.length > 3 && (
-        <button onClick={() => setExpanded(v => !v)}
-                className="text-[10px] text-slate-600 hover:text-slate-400 mt-1 transition-colors">
-          {expanded ? 'show fewer' : `+${headlines.length - 3} more`}
-        </button>
-      )}
-    </div>
-  )
-}
-
-/* ── Section 5: Standing Signals (seed signals, not LLM-generated) ── */
-
 function StandingSignals({ signals }) {
   if (!signals?.length) return null
   return (
@@ -404,8 +641,6 @@ function StandingSignals({ signals }) {
   )
 }
 
-/* ── Section 4: Recent Runs (Minto pyramid: bottom line → why → detail) ── */
-
 function RunCard({ run, expanded, onToggle }) {
   const verdict = run.verdict ?? {}
   const dismissed = run.categories_dismissed_reason ?? {}
@@ -419,7 +654,6 @@ function RunCard({ run, expanded, onToggle }) {
 
   return (
     <div className={`rounded-lg border ${run.flagged ? 'border-red-900/40 bg-red-950/10' : 'border-slate-800 bg-slate-950/40'}`}>
-      {/* ── Row 1: Bottom line (always visible) ── */}
       <button
         onClick={onToggle}
         className="w-full px-3 py-2 flex items-center gap-2 text-left hover:bg-slate-800/30 transition-colors rounded-lg"
@@ -450,7 +684,6 @@ function RunCard({ run, expanded, onToggle }) {
 
       {expanded && (
         <div className="px-3 pb-3 border-t border-slate-800/60">
-          {/* ── Row 2: Why — the synthesis (Minto "situation + complication") ── */}
           {!isSkip && verdict.reasoning && (
             <div className="mt-2 mb-2">
               <p className="text-[11px] text-slate-300 leading-relaxed">{verdict.reasoning}</p>
@@ -466,7 +699,6 @@ function RunCard({ run, expanded, onToggle }) {
             <p className="mt-2 mb-2 text-[11px] text-slate-500 italic">No material change since last snapshot — LLM not called.</p>
           )}
 
-          {/* ── Row 3: What moved (compact inline summary) ── */}
           {diffKeys.length > 0 && (
             <div className="flex items-center gap-1.5 flex-wrap mb-2">
               <span className="text-[10px] text-slate-500 shrink-0">Changed:</span>
@@ -480,7 +712,6 @@ function RunCard({ run, expanded, onToggle }) {
             </div>
           )}
 
-          {/* ── Row 4: Detail toggle (considered + excluded + metadata) ── */}
           {(considered.length > 0 || dismissedKeys.length > 0) && (
             <div>
               <button
@@ -551,14 +782,20 @@ function RunCard({ run, expanded, onToggle }) {
   )
 }
 
-/* ── Main Panel ── */
+/* ═══════════════════════════════════════════════════════════════════════
+   Main Panel — tab-switched between Main and Diagnostics
+   ═══════════════════════════════════════════════════════════════════════ */
 
 export default function GeoRegimePanel({ data, loading, error }) {
   const [collapsed, setCollapsed] = useState(true)
+  const [view, setView] = useState('main')
   const [expandedRun, setExpandedRun] = useState(null)
+
+  const headlineVolume = useHeadlineVolume()
 
   const runs = data?.runs ?? []
   const allSignals = data?.signals ?? []
+  const trajectory = data?.trajectory ?? []
   const latestRun = runs[0]
 
   const standingSignals = allSignals.filter(s => !s.slug?.startsWith('llm-'))
@@ -606,40 +843,67 @@ export default function GeoRegimePanel({ data, loading, error }) {
 
             {!loading && !error && (
               <>
-                <RegimeSummary allSignals={allSignals} latestRun={latestRun} />
+                {/* Tab switcher */}
+                <div className="flex gap-1">
+                  {[
+                    { key: 'main', label: 'Main' },
+                    { key: 'diagnostics', label: 'Diagnostics' },
+                  ].map(tab => (
+                    <button
+                      key={tab.key}
+                      onClick={() => setView(tab.key)}
+                      className={`px-2.5 py-0.5 rounded text-[11px] font-semibold border transition-colors ${
+                        view === tab.key
+                          ? 'text-violet-300 bg-violet-950/40 border-violet-800/60'
+                          : 'text-slate-500 bg-slate-900/40 border-slate-800 hover:text-slate-300'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
 
-                <TierStaleness tierTracking={data?.tierTracking} />
-
-                <MarketPricing marketPricing={data?.marketPricing} />
-
-                <Headlines />
-
-                <StandingSignals signals={standingSignals} />
-
-                {aiSignalCount > 0 && (
-                  <p className="text-[9px] text-slate-600 -mt-2">
-                    + {aiSignalCount} LLM-generated flag{aiSignalCount !== 1 ? 's' : ''} in signal history (severity drives regime summary above)
-                  </p>
+                {view === 'main' && (
+                  <>
+                    <WorldBriefing latestRun={latestRun} />
+                    <TrajectoryLayer trajectory={trajectory} headlineVolume={headlineVolume} />
+                    <MarketPricing marketPricing={data?.marketPricing} />
+                    <Headlines />
+                  </>
                 )}
 
-                <div>
-                  <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
-                    Recent Runs ({runs.length})
-                  </p>
-                  <div className="space-y-1">
-                    {runs.map(run => (
-                      <RunCard
-                        key={run.id}
-                        run={run}
-                        expanded={expandedRun === run.id}
-                        onToggle={() => setExpandedRun(prev => prev === run.id ? null : run.id)}
-                      />
-                    ))}
-                  </div>
-                  {runs.length === 0 && (
-                    <p className="text-[11px] text-slate-600">No runs recorded yet — the 4-hourly cron populates this.</p>
-                  )}
-                </div>
+                {view === 'diagnostics' && (
+                  <>
+                    <RegimeSummary allSignals={allSignals} latestRun={latestRun} />
+                    <TierStaleness tierTracking={data?.tierTracking} />
+                    <StandingSignals signals={standingSignals} />
+
+                    {aiSignalCount > 0 && (
+                      <p className="text-[9px] text-slate-600">
+                        + {aiSignalCount} LLM-generated flag{aiSignalCount !== 1 ? 's' : ''} in signal history
+                      </p>
+                    )}
+
+                    <div>
+                      <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+                        Recent Runs ({runs.length})
+                      </p>
+                      <div className="space-y-1">
+                        {runs.map(run => (
+                          <RunCard
+                            key={run.id}
+                            run={run}
+                            expanded={expandedRun === run.id}
+                            onToggle={() => setExpandedRun(prev => prev === run.id ? null : run.id)}
+                          />
+                        ))}
+                      </div>
+                      {runs.length === 0 && (
+                        <p className="text-[11px] text-slate-600">No runs recorded yet — the 4-hourly cron populates this.</p>
+                      )}
+                    </div>
+                  </>
+                )}
               </>
             )}
           </div>

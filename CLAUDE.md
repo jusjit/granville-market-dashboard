@@ -172,7 +172,7 @@ Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX
 6. **Treasury Auctions** — market-moving coupon auctions (2Y 3Y 5Y 7Y 10Y 20Y 30Y) from Fiscal Data API (`api.fiscaldata.treasury.gov`). No API key, no serverless function — fetches directly from the browser. Single compact table: date, term, size, high yield, tail (bp, color-coded), bid-to-cover (color-coded), direct/indirect/dealer %. Topped by an **AI summary** (gemini-2.5-flash via 1min.ai) that only regenerates when new auction data appears (hash-based cache in `synthesis_cache` id=2, no TTL). Summary focuses on demand quality, foreign demand trends, and tenor-level shifts. Client sends auction data to `POST /api/synthesis?type=treasury` — same serverless function as the main synthesis, routed by query param.
 7. **Vol Surface** — SPX term structure, Tradier/ORATS options data. Has its own Refresh button (re-fetches live data without refreshing the full dashboard) + Compare snapshot toggle for historical overlay.
 8. **VIX Futures & Fed Rate %** — collapsible; VX monthly futures (vixcentral/CBOE delayed) + CME FedWatch (ZQ futures/FRED). Snapshot slider for historical comparison. Populated by 4-hourly cron.
-9. **Geo Regime** — collapsible, private dashboard only (`VITE_SHOW_GEO_REGIME=true`). Three sections: Regime Summary (severity tiles per implication type derived from all signals), Monitored Signals (5 seed signals with category/state/implication), Recent Runs (10 expandable cards showing LLM synthesis, considered/excluded categories with reasoning, diff, token usage). Data from unauthenticated GET on `/api/aggregate-geo-regime`.
+9. **Geo Regime** — collapsible, private dashboard only (`VITE_SHOW_GEO_REGIME=true`). Two-tab layout (Main / Diagnostics, violet pill-button switcher). **Main tab**: World Briefing (Minto pyramid — bold bottom line + per-theme/region cards with source convergence badges), Trajectory Layer (7/14/30d trend sparklines per theme bucket from 30 days of `geo_regime_runs`, GDELT headline volume sparkline), Market Pricing (unchanged 4-tile grid), Breaking Headlines (broadened to all languages, no `sourcelang:english` filter). **Diagnostics tab** (pipeline debugging): Regime Summary severity tiles, Stale Risk Tiers, Monitored Signals, Recent Runs (10 Minto-style expandable cards with full considered/excluded/token detail). Data from unauthenticated GET on `/api/aggregate-geo-regime?window=30`.
 10. **Alma Centroid** — private dashboard only (`VITE_SHOW_ALMA=true`)
 
 ## Vercel Function Count (Hobby plan limit: 12)
@@ -399,59 +399,57 @@ Fixes (in `THRESHOLDS`, `HYSTERESIS_CATEGORIES`, `resolveGatedDiff()`,
   extending hysteresis to more categories — not reflexively, only where
   production data shows real noise (same discipline as this pass).
 
-### Geo Regime Panel (shipped 2026-07-22)
+### Geo Regime Panel (shipped 2026-07-22, redesigned 2026-08-02)
 
 Collapsible panel on private dashboard (`VITE_SHOW_GEO_REGIME=true`), renders
-between Reference Data and Alma. Six sections (top to bottom):
-1. **Regime Summary** — severity tiles per implication type (Oil Shock, Carry
-   Unwind, Equity Drawdown, Safe Haven, Freight Shock) with escalating count.
-   Derived client-side from all `geopolitical_signals` rows (the `current_regime`
-   Supabase view returns null due to PostgREST permissions — client derivation
-   is the workaround).
-2. **Stale Risk Tiers** (added 2026-07-26) — amber warning box listing
-   chokepoints whose upstream `warRiskTier` hasn't changed in 14+ days.
-   Tier tracking stored in `geo_regime_last_snapshot.tier_tracking` (jsonb,
-   per-chokepoint `{tier, first_seen_at, last_changed_at}`). The 4 tracked
-   chokepoints are hormuz_strait, bab_el_mandeb, suez, taiwan_strait.
-   `warRiskTier` is manually configured in worldmonitor's
-   `get-chokepoint-status.ts` — the staleness warning is a correctness
-   safeguard, not an auto-update mechanism.
-3. **Market Pricing** (added 2026-07-26) — 4-tile grid (WTI, VIX, HY OAS,
-   USD/JPY) from FRED, clearly labeled as independent from geo scoring.
-   Stored in `geo_regime_last_snapshot.market_pricing` (jsonb). The design
-   intent: "geo risk is escalating AND market hasn't priced it" vs "geo risk
-   is escalating AND market has already priced it" should be two things the
-   user compares, not a pre-blended LLM verdict.
-4. **Breaking Headlines** (added 2026-07-26) — client-side GDELT fetch
-   (no Vercel function slot used), keyword-filtered to monitored corridors
-   (hormuz, bab el-mandeb, houthi, red sea, taiwan strait, south china sea).
-   20-min auto-refresh, 3 headlines default with expand-to-8. Not fed into
-   scoring — separate unprocessed fast layer alongside the slow structural
-   pipeline. GDELT has aggressive rate limits; the 20-min interval is safe.
-   Retry logic (2026-07-27): 3 attempts with increasing backoff on 429s;
-   last successful headlines cached and shown as "stale" if refresh fails
-   (no more blank "Failed to fetch" on transient rate-limit hits).
-5. **Monitored Signals** — the 5 seed signals (non-`llm-*` slugs: Hormuz,
-   Bab el-Mandeb, Taiwan, BOJ, Semis) as compact cards with category, state,
-   and market implication. LLM-generated `AI flag:` signals are rolled into
-   the regime summary severity tiles rather than listed individually.
-6. **Recent Runs** — 10 expandable cards, Minto pyramid layout (redesigned
-   2026-07-27). Collapsed header shows bottom line: flagged risk category +
-   confidence, "Clear", or "No change" — scannable without expanding.
-   Expanding shows synthesis reasoning first (the "why"), then inline
-   "Changed:" badges, then a collapsed "N included · N excluded" detail
-   toggle for the full considered/excluded lists with per-category reasoning
-   and token usage. Technical term badges have hover tooltips (added
-   2026-07-27) via `GLOSSARY` map + `Tip` component — covers ucdp, cii,
-   crossSource, posture, shipping, chokepoint, flowRatio, warRiskTier, run
-   types, and all implication keys. Dotted underline indicates hoverable terms.
+between Reference Data and Alma. Two-tab layout (Main / Diagnostics) with
+violet pill-button switcher (same pattern as AlmaPanel sigma band selector).
+
+**Main tab** (default — situational awareness):
+1. **World Briefing** (added 2026-08-02) — Minto pyramid from LLM `briefing`
+   field: bold bottom_line sentence at top, then per-theme/region cards with
+   situation detail and source convergence badges (using `Tip` tooltips).
+   Graceful fallback ("Briefing unavailable") for pre-prompt-change runs.
+2. **Trajectory Layer** (added 2026-08-02) — 7/14/30-day trend view. Fetches
+   30 days of `geo_regime_runs` (~180 rows, trimmed columns) via `?window=30`.
+   Buckets each run's `risk_category` into 5 theme keys (oil_energy,
+   carry_unwind, equity_drawdown, safe_haven, freight_shock) using same regex
+   patterns as API-side `RISK_TO_IMPLICATION`. Per theme: mini SVG sparkline
+   (confidence over time) + trend arrow (↑/→/↓) + flagged count. Overall
+   confidence sparkline at top. GDELT headline volume sparkline at bottom
+   from `useHeadlineVolume()` (separate `mode=timelinevol` fetch, staggered
+   10s after artlist to avoid rate-limit stacking, same 20-min refresh).
+3. **Market Pricing** — unchanged (WTI, VIX, HY OAS, USD/JPY tiles).
+4. **Breaking Headlines** — GDELT `mode=artlist`, broadened to all languages
+   (removed `sourcelang:english` filter, 2026-08-02). Same 3x retry + stale
+   caching, 20-min refresh, 3 default with expand-to-8.
+
+**Diagnostics tab** (pipeline debugging — all former default-view content):
+1. **Regime Summary** — severity tiles (Oil Shock, Carry Unwind, Equity
+   Drawdown, Safe Haven, Freight Shock) with escalating count.
+2. **Stale Risk Tiers** — amber warning for warRiskTier unchanged >14 days.
+3. **Monitored Signals** — 5 seed signals with category/state/implication.
+4. **Recent Runs** — 10 Minto-pyramid expandable cards with full
+   considered/excluded reasoning, diff badges, token usage, tooltips.
+
+**LLM prompt change** (2026-08-02): SYSTEM_PROMPT output spec now includes
+`briefing: {bottom_line, themes: [{region, situation, sources_confirmed}]}`.
+Minto pyramid style — bottom line first, then per-theme situational detail.
+Pure geopolitical language, no market-implication framing. Adds ~100 tokens
+to LLM output per call.
+
+**API `handleReadOnly` change** (2026-08-02): accepts `?window=N` (max 30).
+When present, fetches trajectory rows (trimmed columns: evaluated_at,
+run_type, flagged, confidence, risk_category) in parallel with the existing
+10-row full-column fetch. Returns as `trajectory` array alongside existing
+response shape.
 
 **Files**:
 - `api/aggregate-geo-regime.js` — unauthenticated GET returns read-only regime
-  data (10 runs, all signals, current_regime view). Same file as the cron
-  POST handler (no extra Vercel function).
-- `src/lib/georegime.js` — client fetch wrapper.
-- `src/components/GeoRegimePanel.jsx` — collapsible panel component.
+  data (10 full runs + up to 180 trajectory rows with `?window=30`). Same
+  file as the cron POST handler (no extra Vercel function).
+- `src/lib/georegime.js` — client fetch wrapper (passes `?window=30` by default).
+- `src/components/GeoRegimePanel.jsx` — two-tab panel component.
 - `src/App.jsx` — wired with `SHOW_GEO` flag, `geoData`/`geoLoading`/`geoError`
   state, fetched on `refresh()`.
 
