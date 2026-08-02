@@ -417,12 +417,19 @@ violet pill-button switcher (same pattern as AlmaPanel sigma band selector).
    patterns as API-side `RISK_TO_IMPLICATION`. Per theme: mini SVG sparkline
    (confidence over time) + trend arrow (↑/→/↓) + flagged count. Overall
    confidence sparkline at top. GDELT headline volume sparkline at bottom
-   from `useHeadlineVolume()` (separate `mode=timelinevol` fetch, staggered
-   10s after artlist to avoid rate-limit stacking, same 20-min refresh).
+   (from server-side `timelinevol` fetch stored in snapshot). Each theme row
+   now shows the latest `risk_category` text explaining why it's flagged.
 3. **Market Pricing** — unchanged (WTI, VIX, HY OAS, USD/JPY tiles).
-4. **Breaking Headlines** — GDELT `mode=artlist`, broadened to all languages
-   (removed `sourcelang:english` filter, 2026-08-02). Same 3x retry + stale
-   caching, 20-min refresh, 3 default with expand-to-8.
+4. **Headlines** (redesigned 2026-08-02) — server-side GDELT fetch (50
+   articles per cron run, all languages, broadened query covering chokepoints,
+   sanctions, tariffs, OPEC, pipelines, nuclear, NATO, Ukraine, Panama/Malacca,
+   coups, cyber, rare earth, semiconductors). LLM analysis groups headlines
+   into 5-8 themes with importance rating (high/medium/low), context sentence,
+   and convergence detection. Expandable per-group source lists. Stored in
+   `geo_regime_last_snapshot.headlines` jsonb (articles + volume + analysis).
+   Runs every 4h with the cron — no client-side GDELT fetch (eliminates
+   mobile timeout issues). Analysis LLM call runs in parallel with the main
+   geo assessment (no added wall-clock time), also runs on gated-skip.
 
 **Diagnostics tab** (pipeline debugging — all former default-view content):
 1. **Regime Summary** — severity tiles (Oil Shock, Carry Unwind, Equity
