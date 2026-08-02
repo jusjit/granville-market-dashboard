@@ -392,38 +392,116 @@ function gdeltTime(seendate) {
   return `${Math.floor(hrs / 24)}d`
 }
 
-function Headlines({ headlineData }) {
-  const [expanded, setExpanded] = useState(false)
-  const articles = headlineData?.articles ?? []
-  const fetchedAt = headlineData?.fetchedAt
-  const visible = expanded ? articles.slice(0, 8) : articles.slice(0, 3)
+const IMPORTANCE_STYLE = {
+  high: 'text-red-400 bg-red-950/40 border-red-900/40',
+  medium: 'text-amber-400 bg-amber-950/30 border-amber-900/30',
+  low: 'text-slate-400 bg-slate-800/40 border-slate-700/40',
+}
 
+function Headlines({ headlineData }) {
+  const [expandedGroup, setExpandedGroup] = useState(null)
+  const articles = headlineData?.articles ?? []
+  const analysis = headlineData?.analysis
+  const groups = analysis?.groups ?? []
+  const fetchedAt = headlineData?.fetchedAt
+
+  if (articles.length === 0) {
+    return (
+      <div className="rounded-lg border border-slate-800 bg-slate-900/30 px-3 py-2">
+        <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">
+          Headlines <span className="normal-case font-normal text-slate-600">(GDELT · server-fetched)</span>
+        </p>
+        <p className="text-[10px] text-slate-600 italic">Headlines will appear after the next aggregator run.</p>
+      </div>
+    )
+  }
+
+  if (groups.length > 0) {
+    return (
+      <div className="rounded-lg border border-slate-800 bg-slate-900/30 px-3 py-2">
+        <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2">
+          Headlines <span className="normal-case font-normal text-slate-600">({articles.length} sources · GDELT)</span>
+        </p>
+        <div className="space-y-1.5">
+          {groups.map((g, gi) => {
+            const isExpanded = expandedGroup === gi
+            const groupArticles = (g.headline_indices ?? []).map(i => articles[i]).filter(Boolean)
+            return (
+              <div key={gi} className="rounded-lg border border-slate-800/60 bg-slate-950/30">
+                <button
+                  onClick={() => setExpandedGroup(isExpanded ? null : gi)}
+                  className="w-full px-2.5 py-1.5 flex items-start gap-2 text-left hover:bg-slate-800/20 transition-colors rounded-lg"
+                >
+                  <ChevronDown
+                    size={10}
+                    className="text-slate-600 shrink-0 mt-0.5"
+                    style={{ transform: isExpanded ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 0.15s' }}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <span className="text-[11px] font-semibold text-slate-300">{g.theme}</span>
+                      <span className={`px-1 py-0.5 rounded text-[9px] border ${IMPORTANCE_STYLE[g.importance] ?? IMPORTANCE_STYLE.low}`}>
+                        {g.importance}
+                      </span>
+                      {g.converging && (
+                        <span className="px-1 py-0.5 rounded text-[9px] bg-indigo-950/40 border border-indigo-800/40 text-indigo-300">
+                          converging
+                        </span>
+                      )}
+                      <span className="text-[9px] text-slate-600 ml-auto shrink-0">{groupArticles.length} source{groupArticles.length !== 1 ? 's' : ''}</span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 leading-relaxed">{g.context}</p>
+                  </div>
+                </button>
+                {isExpanded && groupArticles.length > 0 && (
+                  <div className="px-2.5 pb-2 border-t border-slate-800/40 space-y-0.5 pt-1">
+                    {groupArticles.map((a, ai) => (
+                      <div key={ai} className="flex items-baseline gap-1.5 text-[10px] leading-tight py-0.5">
+                        <span className="text-slate-600 shrink-0 tabular-nums w-5 text-right">{gdeltTime(a.seendate)}</span>
+                        <span className="text-slate-500 shrink-0 truncate max-w-[70px]">{shortDomain(a.domain)}</span>
+                        <a href={a.url} target="_blank" rel="noopener noreferrer"
+                           className="text-slate-400 hover:text-slate-200 truncate transition-colors">
+                          {a.title}
+                        </a>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+        {fetchedAt && (
+          <p className="text-[9px] text-slate-600 mt-1.5">Fetched {fmtAgo(fetchedAt)}</p>
+        )}
+      </div>
+    )
+  }
+
+  // Fallback: raw headlines if no analysis yet
+  const [showAll, setShowAll] = useState(false)
+  const visible = showAll ? articles.slice(0, 15) : articles.slice(0, 5)
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-900/30 px-3 py-2">
       <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">
-        Breaking Headlines <span className="normal-case font-normal text-slate-600">(GDELT · server-fetched · not used in scoring)</span>
+        Headlines <span className="normal-case font-normal text-slate-600">({articles.length} sources · GDELT)</span>
       </p>
-      {articles.length === 0 && (
-        <p className="text-[10px] text-slate-600 italic">Headlines will appear after the next aggregator run.</p>
-      )}
-      {visible.length > 0 && (
-        <div className="space-y-0.5">
-          {visible.map((a, i) => (
-            <div key={i} className="flex items-baseline gap-1.5 text-[11px] leading-tight py-0.5">
-              <span className="text-slate-600 shrink-0 tabular-nums w-6 text-right">{gdeltTime(a.seendate)}</span>
-              <span className="text-slate-500 shrink-0 truncate max-w-[80px]">{shortDomain(a.domain)}</span>
-              <a href={a.url} target="_blank" rel="noopener noreferrer"
-                 className="text-slate-300 hover:text-slate-100 truncate transition-colors">
-                {a.title}
-              </a>
-            </div>
-          ))}
-        </div>
-      )}
-      {articles.length > 3 && (
-        <button onClick={() => setExpanded(v => !v)}
+      <div className="space-y-0.5">
+        {visible.map((a, i) => (
+          <div key={i} className="flex items-baseline gap-1.5 text-[11px] leading-tight py-0.5">
+            <span className="text-slate-600 shrink-0 tabular-nums w-6 text-right">{gdeltTime(a.seendate)}</span>
+            <span className="text-slate-500 shrink-0 truncate max-w-[80px]">{shortDomain(a.domain)}</span>
+            <a href={a.url} target="_blank" rel="noopener noreferrer"
+               className="text-slate-300 hover:text-slate-100 truncate transition-colors">
+              {a.title}
+            </a>
+          </div>
+        ))}
+      </div>
+      {articles.length > 5 && (
+        <button onClick={() => setShowAll(v => !v)}
                 className="text-[10px] text-slate-600 hover:text-slate-400 mt-1 transition-colors">
-          {expanded ? 'show fewer' : `+${articles.length - 3} more`}
+          {showAll ? 'show fewer' : `+${articles.length - 5} more`}
         </button>
       )}
       {fetchedAt && (

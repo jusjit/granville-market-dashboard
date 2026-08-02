@@ -502,9 +502,22 @@ async function callOneMin(prompt, key, model = MODEL) {
   throw new Error(`1min.ai failed 3× — ${errors.join(' | ')}`)
 }
 
-const GDELT_QUERY = '(hormuz OR "bab el-mandeb" OR houthi OR "red sea" OR "taiwan strait" OR "south china sea")'
-const GDELT_ART_URL = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(GDELT_QUERY)}&mode=artlist&maxrecords=8&format=json&sort=datedesc`
+const GDELT_QUERY = '(hormuz OR "bab el-mandeb" OR houthi OR "red sea" OR "taiwan strait" OR "south china sea" OR "malacca strait" OR "panama canal" OR sanctions OR tariff OR "trade war" OR embargo OR OPEC OR "nord stream" OR pipeline OR "lng export" OR nuclear OR "ballistic missile" OR NATO OR ukraine OR "black sea" OR crimea OR coup OR "martial law" OR "regime change" OR "cyber attack" OR "critical infrastructure" OR "rare earth" OR TSMC OR semiconductor)'
+const GDELT_ART_URL = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(GDELT_QUERY)}&mode=artlist&maxrecords=50&format=json&sort=datedesc`
 const GDELT_VOL_URL = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(GDELT_QUERY)}&mode=timelinevol&format=json`
+
+const HEADLINE_ANALYSIS_PROMPT = `You are a geopolitical intelligence analyst. Given a list of recent headlines from global news sources, group them by theme and assess each group's significance for global markets and geopolitical stability.
+
+For each group:
+- Give it a short theme label (2-5 words)
+- Write 1-2 sentences of plain-language context on why this matters (or doesn't)
+- Rate importance: "high", "medium", or "low"
+- Note if multiple independent sources are reporting the same event (convergence signal)
+- Negative developments (de-escalation, peace talks, sanctions lifted) are equally important — flag them
+
+Output strict JSON: {groups: [{theme: string, importance: "high"|"medium"|"low", context: string, converging: boolean, headline_indices: number[]}]}
+
+headline_indices are 0-based positions in the input array. Every headline must appear in exactly one group. Keep to 5-8 groups maximum — merge minor stories.`
 
 async function fetchGdeltHeadlines() {
   const results = { articles: [], volume: [], fetchedAt: new Date().toISOString() }
@@ -512,7 +525,7 @@ async function fetchGdeltHeadlines() {
     const r = await fetch(GDELT_ART_URL, { signal: AbortSignal.timeout(15000) })
     if (r.ok) {
       const data = await r.json()
-      results.articles = (data.articles ?? []).slice(0, 8)
+      results.articles = (data.articles ?? []).slice(0, 50)
     }
   } catch { /* non-fatal */ }
   try {
@@ -524,6 +537,20 @@ async function fetchGdeltHeadlines() {
     }
   } catch { /* non-fatal */ }
   return results
+}
+
+function buildHeadlinePrompt(articles) {
+  const summaries = articles.map((a, i) => `[${i}] ${a.title} (${a.domain})`).join('\n')
+  return `${HEADLINE_ANALYSIS_PROMPT}\n\nHEADLINES:\n${summaries}\n\nRespond with the strict JSON object only — no markdown fences, no commentary.`
+}
+
+async function analyzeHeadlines(articles, key) {
+  if (!articles || articles.length === 0) return null
+  try {
+    const prompt = buildHeadlinePrompt(articles)
+    const { verdict } = await callOneMinOnce(prompt, key, MODEL)
+    return verdict
+  } catch { return null }
 }
 
 function sb() {
@@ -708,6 +735,7 @@ export default async function handler(req, res) {
 
     // ── Gated skip: no material change, not forced, not a full scan ────────
     if (!scanFull && !force && !diff.changed) {
+      headlines.analysis = await analyzeHeadlines(headlines.articles, oneMinKey)
       await writeLastSnapshot(gated.nextConfirmed, gated.nextPending, signals, tierTracking, marketPricing, headlines)
       const skipVerdict = {
         flagged: false, skipped: true, reason: 'no material change since last snapshot',
@@ -728,7 +756,11 @@ export default async function handler(req, res) {
       ? buildFullPrompt(signals, errors)
       : buildDeltaPrompt(signals, material, diff, errors)
 
-    const { verdict, tokenUsage } = await callOneMin(prompt, oneMinKey)
+    const [{ verdict, tokenUsage }, headlineAnalysis] = await Promise.all([
+      callOneMin(prompt, oneMinKey),
+      analyzeHeadlines(headlines.articles, oneMinKey),
+    ])
+    headlines.analysis = headlineAnalysis
     const result = { verdict, evaluatedAt: new Date().toISOString(), runType, tokenUsage }
 
     // Persist the flag, but never discard a completed LLM verdict over a
