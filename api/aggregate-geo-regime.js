@@ -502,6 +502,30 @@ async function callOneMin(prompt, key, model = MODEL) {
   throw new Error(`1min.ai failed 3× — ${errors.join(' | ')}`)
 }
 
+const GDELT_QUERY = '(hormuz OR "bab el-mandeb" OR houthi OR "red sea" OR "taiwan strait" OR "south china sea")'
+const GDELT_ART_URL = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(GDELT_QUERY)}&mode=artlist&maxrecords=8&format=json&sort=datedesc`
+const GDELT_VOL_URL = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(GDELT_QUERY)}&mode=timelinevol&format=json`
+
+async function fetchGdeltHeadlines() {
+  const results = { articles: [], volume: [], fetchedAt: new Date().toISOString() }
+  try {
+    const r = await fetch(GDELT_ART_URL, { signal: AbortSignal.timeout(15000) })
+    if (r.ok) {
+      const data = await r.json()
+      results.articles = (data.articles ?? []).slice(0, 8)
+    }
+  } catch { /* non-fatal */ }
+  try {
+    await sleep(2000)
+    const r = await fetch(GDELT_VOL_URL, { signal: AbortSignal.timeout(15000) })
+    if (r.ok) {
+      const data = await r.json()
+      results.volume = (data.timeline?.[0]?.data ?? []).map(d => ({ date: d.date, value: d.value }))
+    }
+  } catch { /* non-fatal */ }
+  return results
+}
+
 function sb() {
   const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY
   if (!url || !key) return null
@@ -520,13 +544,15 @@ async function readLastSnapshot() {
   } catch { return null }
 }
 
-async function writeLastSnapshot(material, pending, raw, tierTracking, marketPricing) {
+async function writeLastSnapshot(material, pending, raw, tierTracking, marketPricing, headlines) {
   const c = sb(); if (!c) return
   try {
+    const row = { id: 1, material, pending, raw, tier_tracking: tierTracking, market_pricing: marketPricing, captured_at: new Date().toISOString() }
+    if (headlines) row.headlines = headlines
     await fetch(`${c.url}/rest/v1/geo_regime_last_snapshot?on_conflict=id`, {
       method: 'POST',
       headers: { ...c.headers, Prefer: 'resolution=merge-duplicates' },
-      body: JSON.stringify([{ id: 1, material, pending, raw, tier_tracking: tierTracking, market_pricing: marketPricing, captured_at: new Date().toISOString() }]),
+      body: JSON.stringify([row]),
     })
   } catch { /* non-fatal */ }
 }
@@ -623,7 +649,7 @@ async function handleReadOnly(req, res) {
       fetch(`${c.url}/rest/v1/geo_regime_runs?select=id,evaluated_at,run_type,flagged,confidence,risk_category,categories_considered,categories_dismissed_reason,verdict,diff,token_usage,source_errors&order=evaluated_at.desc&limit=${limit}`, { headers: c.headers }),
       fetch(`${c.url}/rest/v1/geopolitical_signals?select=*&order=severity.desc`, { headers: c.headers }),
       fetch(`${c.url}/rest/v1/current_regime?select=*&limit=1`, { headers: c.headers }),
-      fetch(`${c.url}/rest/v1/geo_regime_last_snapshot?id=eq.1&select=tier_tracking,market_pricing`, { headers: c.headers }),
+      fetch(`${c.url}/rest/v1/geo_regime_last_snapshot?id=eq.1&select=tier_tracking,market_pricing,headlines`, { headers: c.headers }),
     ]
     if (window > 0) {
       const trajLimit = window * 6
@@ -641,7 +667,7 @@ async function handleReadOnly(req, res) {
     ])
     const trajectory = window > 0 && results[4]?.ok ? await results[4].json() : []
     res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=120')
-    return res.status(200).json({ runs, signals, regime: regime[0] ?? null, tierTracking: snapshot[0]?.tier_tracking ?? null, marketPricing: snapshot[0]?.market_pricing ?? null, trajectory })
+    return res.status(200).json({ runs, signals, regime: regime[0] ?? null, tierTracking: snapshot[0]?.tier_tracking ?? null, marketPricing: snapshot[0]?.market_pricing ?? null, headlines: snapshot[0]?.headlines ?? null, trajectory })
   } catch (err) {
     return res.status(500).json({ error: err.message })
   }
@@ -664,7 +690,7 @@ export default async function handler(req, res) {
   const scanFull = req.query?.scan === 'full' || body.scan === 'full'
 
   try {
-    const { signals, errors } = await gatherSignals()
+    const [{ signals, errors }, headlines] = await Promise.all([gatherSignals(), fetchGdeltHeadlines()])
     const material = computeMaterialState(signals)
     const marketPricing = extractMarketPricing(signals)
     const inputHash = JSON.stringify(material)
@@ -682,7 +708,7 @@ export default async function handler(req, res) {
 
     // ── Gated skip: no material change, not forced, not a full scan ────────
     if (!scanFull && !force && !diff.changed) {
-      await writeLastSnapshot(gated.nextConfirmed, gated.nextPending, signals, tierTracking, marketPricing)
+      await writeLastSnapshot(gated.nextConfirmed, gated.nextPending, signals, tierTracking, marketPricing, headlines)
       const skipVerdict = {
         flagged: false, skipped: true, reason: 'no material change since last snapshot',
         pendingCategories: gated.pendingCategories,
@@ -716,8 +742,8 @@ export default async function handler(req, res) {
     const runRecordError = await insertRunRecord({ runType, verdict, inputHash, errors, diff: diff.deltas, tokenUsage })
     // Full-scan: promote everything, clear all pending. Gated-triggered:
     // gated.nextConfirmed/nextPending already reflect the hysteresis outcome.
-    if (scanFull) await writeLastSnapshot(material, {}, signals, tierTracking, marketPricing)
-    else await writeLastSnapshot(gated.nextConfirmed, gated.nextPending, signals, tierTracking, marketPricing)
+    if (scanFull) await writeLastSnapshot(material, {}, signals, tierTracking, marketPricing, headlines)
+    else await writeLastSnapshot(gated.nextConfirmed, gated.nextPending, signals, tierTracking, marketPricing, headlines)
 
     return res.status(200).json({
       ...result, diff: diff.deltas, upsertedSignal: upserted?.slug ?? null, upsertError, runRecordError, sourceErrors: errors,

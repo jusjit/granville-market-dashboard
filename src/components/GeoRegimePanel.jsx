@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, Component } from 'react'
+import { useState, Component } from 'react'
 import { ChevronDown } from 'lucide-react'
 
 class GeoErrorBoundary extends Component {
@@ -241,6 +241,7 @@ function TrajectoryLayer({ trajectory, headlineVolume }) {
   const windowRuns = trajectory.filter(r => new Date(r.evaluated_at).getTime() >= cutoff)
 
   const themeData = {}
+  const themeLatest = {}
   for (const b of THEME_BUCKETS) themeData[b.key] = []
 
   for (const run of windowRuns) {
@@ -248,6 +249,7 @@ function TrajectoryLayer({ trajectory, headlineVolume }) {
     const theme = bucketTheme(run.risk_category)
     if (themeData[theme]) {
       themeData[theme].push({ t: new Date(run.evaluated_at).getTime(), confidence: run.confidence ?? 0 })
+      if (!themeLatest[theme]) themeLatest[theme] = run.risk_category
     }
   }
 
@@ -298,17 +300,23 @@ function TrajectoryLayer({ trajectory, headlineVolume }) {
             .map(p => p.confidence)
           const hasFlagged = points.length > 0
           const trend = trendArrow(points)
+          const latest = themeLatest[b.key]
           return (
-            <div key={b.key} className="flex items-center gap-2 py-0.5">
-              <span className="text-[10px] text-slate-500 w-28 shrink-0 truncate">{b.label}</span>
-              {hasFlagged ? (
-                <>
-                  <MiniSparkline points={points} flagged />
-                  <span className={`text-[11px] ${trend.color}`}>{trend.symbol}</span>
-                  <span className="text-[9px] text-slate-600 ml-auto">{points.length} flag{points.length !== 1 ? 's' : ''}</span>
-                </>
-              ) : (
-                <span className="text-[9px] text-slate-700">quiet</span>
+            <div key={b.key} className="py-1">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-slate-500 w-28 shrink-0 truncate">{b.label}</span>
+                {hasFlagged ? (
+                  <>
+                    <MiniSparkline points={points} flagged />
+                    <span className={`text-[11px] ${trend.color}`}>{trend.symbol}</span>
+                    <span className="text-[9px] text-slate-600 ml-auto">{points.length} flag{points.length !== 1 ? 's' : ''}</span>
+                  </>
+                ) : (
+                  <span className="text-[9px] text-slate-700">quiet</span>
+                )}
+              </div>
+              {latest && (
+                <p className="text-[9px] text-slate-500 ml-28 pl-2 mt-0.5 truncate">Latest: {latest}</p>
               )}
             </div>
           )
@@ -367,80 +375,10 @@ function MarketPricing({ marketPricing }) {
   )
 }
 
-/* ── Headlines (GDELT, broadened language) ── */
-
-const GDELT_QUERY = '(hormuz OR "bab el-mandeb" OR houthi OR "red sea" OR "taiwan strait" OR "south china sea")'
-const GDELT_URL = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(GDELT_QUERY)}&mode=artlist&maxrecords=8&format=json&sort=datedesc`
-const GDELT_VOL_URL = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(GDELT_QUERY)}&mode=timelinevol&format=json`
-const HEADLINE_REFRESH_MS = 20 * 60 * 1000
+/* ── Headlines (server-side GDELT, fetched by aggregator cron) ── */
 
 function shortDomain(domain) {
   return (domain ?? '').replace(/^www\./, '').split('.').slice(0, -1).join('.') || domain
-}
-
-function useHeadlines() {
-  const [headlines, setHeadlines] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
-  const [stale, setStale] = useState(false)
-
-  const refresh = useCallback(async () => {
-    setLoading(true)
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        if (attempt > 0) await new Promise(r => setTimeout(r, 2000 * attempt))
-        const r = await fetch(GDELT_URL)
-        if (r.status === 429) { continue }
-        if (!r.ok) throw new Error(`GDELT ${r.status}`)
-        const data = await r.json()
-        setHeadlines(data.articles ?? [])
-        setError(null)
-        setStale(false)
-        setLoading(false)
-        return
-      } catch (e) {
-        if (attempt === 2) {
-          setError(e.message)
-          setStale(prev => prev || headlines.length > 0)
-        }
-      }
-    }
-    setLoading(false)
-  }, [])
-
-  useEffect(() => {
-    refresh()
-    const id = setInterval(refresh, HEADLINE_REFRESH_MS)
-    return () => clearInterval(id)
-  }, [refresh])
-
-  return { headlines, loading, error, stale }
-}
-
-function useHeadlineVolume() {
-  const [volume, setVolume] = useState([])
-
-  useEffect(() => {
-    const fetchVol = async () => {
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          if (attempt > 0) await new Promise(r => setTimeout(r, 2000 * attempt))
-          const r = await fetch(GDELT_VOL_URL)
-          if (r.status === 429) { continue }
-          if (!r.ok) return
-          const data = await r.json()
-          const timeline = data.timeline?.[0]?.data ?? []
-          setVolume(timeline.map(d => ({ date: d.date, value: d.value })))
-          return
-        } catch { /* retry */ }
-      }
-    }
-    const delay = setTimeout(fetchVol, 10000)
-    const id = setInterval(fetchVol, HEADLINE_REFRESH_MS)
-    return () => { clearTimeout(delay); clearInterval(id) }
-  }, [])
-
-  return volume
 }
 
 function gdeltTime(seendate) {
@@ -454,22 +392,19 @@ function gdeltTime(seendate) {
   return `${Math.floor(hrs / 24)}d`
 }
 
-function Headlines() {
-  const { headlines, loading, error, stale } = useHeadlines()
+function Headlines({ headlineData }) {
   const [expanded, setExpanded] = useState(false)
-  const visible = expanded ? headlines.slice(0, 8) : headlines.slice(0, 3)
+  const articles = headlineData?.articles ?? []
+  const fetchedAt = headlineData?.fetchedAt
+  const visible = expanded ? articles.slice(0, 8) : articles.slice(0, 3)
 
   return (
     <div className="rounded-lg border border-slate-800 bg-slate-900/30 px-3 py-2">
       <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">
-        Breaking Headlines <span className="normal-case font-normal text-slate-600">(GDELT · refreshes every 20m · not used in scoring)</span>
-        {stale && <span className="text-amber-600 ml-1">(stale — refresh failed)</span>}
+        Breaking Headlines <span className="normal-case font-normal text-slate-600">(GDELT · server-fetched · not used in scoring)</span>
       </p>
-      {loading && headlines.length === 0 && (
-        <p className="text-[10px] text-slate-600 animate-pulse">Loading headlines…</p>
-      )}
-      {error && headlines.length === 0 && (
-        <p className="text-[10px] text-red-400/70">Headlines unavailable — retried 3×, GDELT may be rate-limiting</p>
+      {articles.length === 0 && (
+        <p className="text-[10px] text-slate-600 italic">Headlines will appear after the next aggregator run.</p>
       )}
       {visible.length > 0 && (
         <div className="space-y-0.5">
@@ -485,11 +420,14 @@ function Headlines() {
           ))}
         </div>
       )}
-      {headlines.length > 3 && (
+      {articles.length > 3 && (
         <button onClick={() => setExpanded(v => !v)}
                 className="text-[10px] text-slate-600 hover:text-slate-400 mt-1 transition-colors">
-          {expanded ? 'show fewer' : `+${headlines.length - 3} more`}
+          {expanded ? 'show fewer' : `+${articles.length - 3} more`}
         </button>
+      )}
+      {fetchedAt && (
+        <p className="text-[9px] text-slate-600 mt-1">Fetched {fmtAgo(fetchedAt)}</p>
       )}
     </div>
   )
@@ -791,11 +729,11 @@ export default function GeoRegimePanel({ data, loading, error }) {
   const [view, setView] = useState('main')
   const [expandedRun, setExpandedRun] = useState(null)
 
-  const headlineVolume = useHeadlineVolume()
-
   const runs = data?.runs ?? []
   const allSignals = data?.signals ?? []
   const trajectory = data?.trajectory ?? []
+  const headlineData = data?.headlines ?? null
+  const headlineVolume = headlineData?.volume ?? []
   const latestRun = runs[0]
 
   const standingSignals = allSignals.filter(s => !s.slug?.startsWith('llm-'))
@@ -868,7 +806,7 @@ export default function GeoRegimePanel({ data, loading, error }) {
                     <WorldBriefing latestRun={latestRun} />
                     <TrajectoryLayer trajectory={trajectory} headlineVolume={headlineVolume} />
                     <MarketPricing marketPricing={data?.marketPricing} />
-                    <Headlines />
+                    <Headlines headlineData={headlineData} />
                   </>
                 )}
 
