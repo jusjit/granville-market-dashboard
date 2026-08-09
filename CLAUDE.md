@@ -410,15 +410,15 @@ violet pill-button switcher (same pattern as AlmaPanel sigma band selector).
    field: bold bottom_line sentence at top, then per-theme/region cards with
    situation detail and source convergence badges (using `Tip` tooltips).
    Graceful fallback ("Briefing unavailable") for pre-prompt-change runs.
-2. **Trajectory Layer** (added 2026-08-02) — 7/14/30-day trend view. Fetches
-   30 days of `geo_regime_runs` (~180 rows, trimmed columns) via `?window=30`.
-   Buckets each run's `risk_category` into 5 theme keys (oil_energy,
-   carry_unwind, equity_drawdown, safe_haven, freight_shock) using same regex
-   patterns as API-side `RISK_TO_IMPLICATION`. Per theme: mini SVG sparkline
-   (confidence over time) + trend arrow (↑/→/↓) + flagged count. Overall
-   confidence sparkline at top. GDELT headline volume sparkline at bottom
-   (from server-side `timelinevol` fetch stored in snapshot). Each theme row
-   now shows the latest `risk_category` text explaining why it's flagged.
+2. **Assessment History** (added 2026-08-02, redesigned 2026-08-09) — 7/14/30-day
+   confidence bar chart + reasoning timeline. Bar chart: one bar per assessed run,
+   color-coded by severity (red ≥80, amber ≥60, blue ≥40, grey below), red dots
+   mark flagged runs, clickable to show detail. Below: scrollable reasoning
+   timeline showing each assessment's confidence, risk category, LLM bottom line
+   (collapsed), and expandable reasoning text + key signal badges. API returns
+   `reasoningTimeline` (20 most recent non-skip runs with verdict excerpts).
+   `displaySource()` maps raw signal IDs to human-readable names (e.g.
+   `thermal:ru:65-0-110-5:...` → "Thermal anomaly (RU)").
 3. **Market Pricing** — unchanged (WTI, VIX, HY OAS, USD/JPY tiles).
 4. **Headlines** (redesigned 2026-08-02) — server-side GDELT fetch (50
    articles per cron run, all languages, broadened query covering chokepoints,
@@ -445,11 +445,14 @@ Minto pyramid style — bottom line first, then per-theme situational detail.
 Pure geopolitical language, no market-implication framing. Adds ~100 tokens
 to LLM output per call.
 
-**API `handleReadOnly` change** (2026-08-02): accepts `?window=N` (max 30).
-When present, fetches trajectory rows (trimmed columns: evaluated_at,
-run_type, flagged, confidence, risk_category) in parallel with the existing
-10-row full-column fetch. Returns as `trajectory` array alongside existing
-response shape.
+**API `handleReadOnly` change** (2026-08-02, updated 2026-08-09): accepts
+`?window=N` (max 30). Fetches trajectory rows (trimmed columns) + 20 most
+recent assessed runs with full verdict (for reasoning timeline) in parallel.
+Returns `trajectory`, `reasoningTimeline` arrays alongside existing response.
+
+**GDELT fetch fix** (2026-08-09): `gdeltFetchWithRetry()` retries 3x with
+5s backoff, sends User-Agent/Referer headers to avoid GDELT rate limiting.
+Previous silent failure (empty `catch {}`) replaced with logged retries.
 
 **Files**:
 - `api/aggregate-geo-regime.js` — unauthenticated GET returns read-only regime
