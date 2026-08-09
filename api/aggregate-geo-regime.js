@@ -519,23 +519,34 @@ Output strict JSON: {groups: [{theme: string, importance: "high"|"medium"|"low",
 
 headline_indices are 0-based positions in the input array. Every headline must appear in exactly one group. Keep to 5-8 groups maximum — merge minor stories.`
 
+const GDELT_HEADERS = { 'User-Agent': 'GranvilleDashboard/1.0', 'Referer': 'https://private-market-dashboard.vercel.app/' }
+
+async function gdeltFetchWithRetry(url, retries = 3) {
+  for (let i = 0; i < retries; i++) {
+    if (i > 0) await sleep(5000 * i)
+    const r = await fetch(url, { signal: AbortSignal.timeout(20000), headers: GDELT_HEADERS })
+    if (r.ok) return r.json()
+    const body = await r.text().catch(() => '')
+    if (body.includes('limit requests')) {
+      console.log(`GDELT rate-limited (attempt ${i + 1}/${retries}), waiting...`)
+      continue
+    }
+    console.log(`GDELT HTTP ${r.status} (attempt ${i + 1}/${retries})`)
+  }
+  return null
+}
+
 async function fetchGdeltHeadlines() {
   const results = { articles: [], volume: [], fetchedAt: new Date().toISOString() }
   try {
-    const r = await fetch(GDELT_ART_URL, { signal: AbortSignal.timeout(15000) })
-    if (r.ok) {
-      const data = await r.json()
-      results.articles = (data.articles ?? []).slice(0, 50)
-    }
-  } catch { /* non-fatal */ }
+    const data = await gdeltFetchWithRetry(GDELT_ART_URL)
+    if (data) results.articles = (data.articles ?? []).slice(0, 50)
+  } catch (e) { console.log('GDELT artlist error:', e.message) }
   try {
-    await sleep(2000)
-    const r = await fetch(GDELT_VOL_URL, { signal: AbortSignal.timeout(15000) })
-    if (r.ok) {
-      const data = await r.json()
-      results.volume = (data.timeline?.[0]?.data ?? []).map(d => ({ date: d.date, value: d.value }))
-    }
-  } catch { /* non-fatal */ }
+    await sleep(5000)
+    const data = await gdeltFetchWithRetry(GDELT_VOL_URL)
+    if (data) results.volume = (data.timeline?.[0]?.data ?? []).map(d => ({ date: d.date, value: d.value }))
+  } catch (e) { console.log('GDELT volume error:', e.message) }
   return results
 }
 
@@ -681,7 +692,8 @@ async function handleReadOnly(req, res) {
     if (window > 0) {
       const trajLimit = window * 6
       fetches.push(
-        fetch(`${c.url}/rest/v1/geo_regime_runs?select=evaluated_at,run_type,flagged,confidence,risk_category&order=evaluated_at.desc&limit=${trajLimit}`, { headers: c.headers })
+        fetch(`${c.url}/rest/v1/geo_regime_runs?select=evaluated_at,run_type,flagged,confidence,risk_category&order=evaluated_at.desc&limit=${trajLimit}`, { headers: c.headers }),
+        fetch(`${c.url}/rest/v1/geo_regime_runs?select=evaluated_at,run_type,flagged,confidence,risk_category,verdict&run_type=neq.gated-skip&order=evaluated_at.desc&limit=20`, { headers: c.headers })
       )
     }
     const results = await Promise.all(fetches)
@@ -693,8 +705,16 @@ async function handleReadOnly(req, res) {
       snapshotRes.ok ? snapshotRes.json() : [],
     ])
     const trajectory = window > 0 && results[4]?.ok ? await results[4].json() : []
+    const assessedRuns = window > 0 && results[5]?.ok ? await results[5].json() : []
+    const reasoningTimeline = assessedRuns.map(r => ({
+      evaluated_at: r.evaluated_at, run_type: r.run_type, flagged: r.flagged,
+      confidence: r.confidence, risk_category: r.risk_category,
+      reasoning: r.verdict?.reasoning || r.verdict?.transmission_chain || null,
+      relevant_signals: r.verdict?.relevant_signals || null,
+      bottom_line: r.verdict?.briefing?.bottom_line || null,
+    }))
     res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=120')
-    return res.status(200).json({ runs, signals, regime: regime[0] ?? null, tierTracking: snapshot[0]?.tier_tracking ?? null, marketPricing: snapshot[0]?.market_pricing ?? null, headlines: snapshot[0]?.headlines ?? null, trajectory })
+    return res.status(200).json({ runs, signals, regime: regime[0] ?? null, tierTracking: snapshot[0]?.tier_tracking ?? null, marketPricing: snapshot[0]?.market_pricing ?? null, headlines: snapshot[0]?.headlines ?? null, trajectory, reasoningTimeline })
   } catch (err) {
     return res.status(500).json({ error: err.message })
   }

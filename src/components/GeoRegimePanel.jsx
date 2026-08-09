@@ -124,6 +124,42 @@ function fmtTime(iso) {
    MAIN VIEW — World Briefing + Trajectory + Market Pricing + Headlines
    ═══════════════════════════════════════════════════════════════════════ */
 
+/* ── Source display name mapping ── */
+
+const SOURCE_NAMES = {
+  hormuz_strait: 'Strait of Hormuz', bab_el_mandeb: 'Bab el-Mandeb', suez: 'Suez Canal',
+  bosphorus: 'Bosphorus', bosporus: 'Bosphorus', taiwan_strait: 'Taiwan Strait',
+  kerch_strait: 'Kerch Strait', malacca_strait: 'Malacca Strait', panama_canal: 'Panama Canal',
+}
+
+function displaySource(raw) {
+  if (SOURCE_NAMES[raw]) return SOURCE_NAMES[raw]
+  if (/^thermal:/.test(raw)) {
+    const cc = raw.match(/^thermal:([a-z]{2}):/)?.[1]?.toUpperCase()
+    return cc ? `Thermal anomaly (${cc})` : 'Thermal anomaly'
+  }
+  if (/^risk:/.test(raw)) {
+    const cc = raw.replace('risk:', '').toUpperCase()
+    return `Country risk (${cc})`
+  }
+  if (/^unrest:/.test(raw)) return `Unrest: ${raw.replace('unrest:', '').replace(/-/g, ' ')}`
+  if (/^gpsjam:/.test(raw)) return `GPS jamming: ${raw.replace('gpsjam:', '').replace(/-/g, ' ')}`
+  if (/^cyber:/.test(raw)) return `Cyber incidents: ${raw.replace('cyber:', '')}`
+  if (/^composite:/.test(raw)) return `Composite: ${raw.replace('composite:', '').replace(/-/g, ' ')}`
+  if (/^commodity:/.test(raw)) return `Commodity signal`
+  if (/^forecast:/.test(raw)) return 'Forecast model'
+  if (/crossSourceSignals/.test(raw)) {
+    const inner = raw.match(/id=([^[\]]+)/)?.[1]
+    return inner ? `Convergence: ${displaySource(inner)}` : 'Cross-source convergence'
+  }
+  if (/^chokepoints\./.test(raw)) {
+    const name = raw.replace('chokepoints.', '').split('.')[0]
+    return SOURCE_NAMES[name] || name.replace(/_/g, ' ')
+  }
+  if (/ucdp/i.test(raw)) return 'UCDP conflict data'
+  return raw.replace(/_/g, ' ').replace(/-/g, ' ')
+}
+
 /* ── World Briefing (Minto pyramid: bottom line → theme detail) ── */
 
 function WorldBriefing({ latestRun }) {
@@ -153,7 +189,7 @@ function WorldBriefing({ latestRun }) {
                   {t.sources_confirmed.map((s, j) => (
                     <Tip key={j} term={s}>
                       <span className="px-1 py-0.5 rounded text-[9px] bg-slate-800/60 border border-slate-700/40 text-slate-500">
-                        {s}
+                        {displaySource(s)}
                       </span>
                     </Tip>
                   ))}
@@ -174,102 +210,140 @@ function WorldBriefing({ latestRun }) {
 
 /* ── Trajectory Layer (7/14/30-day trend per theme) ── */
 
-const THEME_BUCKETS = [
-  { key: 'oil_energy', label: 'Oil / Energy', pattern: /oil|energy|hormuz|tanker|lng/i },
-  { key: 'carry_unwind', label: 'Carry Unwind', pattern: /carry|yen|boj|jpy/i },
-  { key: 'equity_drawdown', label: 'Equity Drawdown', pattern: /equity|drawdown|taiwan|conflict/i },
-  { key: 'safe_haven', label: 'Safe Haven', pattern: /haven|gold|flight.to.quality/i },
-  { key: 'freight_shock', label: 'Freight / Shipping', pattern: /freight|shipping|chokepoint|suez|red sea|mandeb/i },
-]
 
-function bucketTheme(riskCategory) {
-  if (!riskCategory) return 'other'
-  for (const b of THEME_BUCKETS) {
-    if (b.pattern.test(riskCategory)) return b.key
-  }
-  return 'other'
+function confColor(conf) {
+  if (conf >= 80) return { bar: '#ef4444', text: 'text-red-400', bg: 'bg-red-500' }
+  if (conf >= 60) return { bar: '#f59e0b', text: 'text-amber-400', bg: 'bg-amber-500' }
+  if (conf >= 40) return { bar: '#3b82f6', text: 'text-blue-400', bg: 'bg-blue-500' }
+  return { bar: '#64748b', text: 'text-slate-400', bg: 'bg-slate-500' }
 }
 
-function MiniSparkline({ points, color = 'text-slate-400', flagged = false }) {
-  if (!points || points.length < 2) {
-    return <span className="text-[9px] text-slate-700">—</span>
-  }
-  const w = 48, h = 18
-  const max = Math.max(...points, 1)
-  const min = Math.min(...points, 0)
-  const range = max - min || 1
-  const coords = points.map((v, i) => {
-    const x = (i / (points.length - 1)) * w
-    const y = h - ((v - min) / range) * (h - 2) - 1
-    return `${x},${y}`
-  }).join(' ')
-
-  const strokeClass = flagged ? 'stroke-red-400' : 'stroke-slate-400'
+function ConfidenceBarChart({ runs, onSelectRun, selectedIdx }) {
+  if (!runs || runs.length === 0) return null
+  const barW = Math.max(4, Math.min(12, Math.floor(320 / runs.length)))
+  const gap = Math.max(1, Math.min(3, Math.floor(barW / 4)))
+  const chartW = runs.length * (barW + gap)
+  const chartH = 80
 
   return (
-    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="inline-block">
-      <polyline points={coords} fill="none" className={strokeClass} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
+    <div className="overflow-x-auto">
+      <svg width={Math.max(chartW, 200)} height={chartH + 16} viewBox={`0 0 ${Math.max(chartW, 200)} ${chartH + 16}`} className="block">
+        {/* gridlines */}
+        {[25, 50, 75, 100].map(v => (
+          <g key={v}>
+            <line x1="0" y1={chartH - (v / 100) * chartH} x2={chartW} y2={chartH - (v / 100) * chartH} stroke="#334155" strokeWidth="0.5" strokeDasharray="2,3" />
+            <text x={chartW + 2} y={chartH - (v / 100) * chartH + 3} fill="#475569" fontSize="7">{v}</text>
+          </g>
+        ))}
+        {runs.map((r, i) => {
+          const conf = r.confidence ?? 0
+          const h = (conf / 100) * chartH
+          const x = i * (barW + gap)
+          const color = confColor(conf)
+          const isSelected = selectedIdx === i
+          return (
+            <g key={i} onClick={() => onSelectRun(i)} style={{ cursor: 'pointer' }}>
+              <rect x={x} y={chartH - h} width={barW} height={h} fill={color.bar} rx="1"
+                opacity={isSelected ? 1 : 0.7} stroke={isSelected ? '#e2e8f0' : 'none'} strokeWidth={isSelected ? 1 : 0} />
+              {r.flagged && <circle cx={x + barW / 2} cy={chartH - h - 4} r="2" fill="#ef4444" />}
+            </g>
+          )
+        })}
+        <line x1="0" y1={chartH} x2={chartW} y2={chartH} stroke="#475569" strokeWidth="0.5" />
+      </svg>
+    </div>
   )
 }
 
-function trendArrow(points) {
-  if (!points || points.length < 2) return { symbol: '—', color: 'text-slate-600' }
-  const first = points.slice(0, Math.ceil(points.length / 2))
-  const second = points.slice(Math.ceil(points.length / 2))
-  const avgFirst = first.reduce((a, b) => a + b, 0) / first.length
-  const avgSecond = second.reduce((a, b) => a + b, 0) / second.length
-  const diff = avgSecond - avgFirst
-  if (diff > 5) return { symbol: '↑', color: 'text-red-400' }
-  if (diff < -5) return { symbol: '↓', color: 'text-emerald-400' }
-  return { symbol: '→', color: 'text-slate-500' }
+function ReasoningEntry({ entry }) {
+  const [expanded, setExpanded] = useState(false)
+  const color = confColor(entry.confidence ?? 0)
+  const dateStr = new Date(entry.evaluated_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+
+  return (
+    <div className={`border-l-2 pl-3 py-2 ${entry.flagged ? 'border-red-800/60' : 'border-slate-800/40'}`}>
+      <div className="flex items-center gap-2 cursor-pointer" onClick={() => setExpanded(!expanded)}>
+        <span className={`text-[9px] font-mono ${color.text}`}>{entry.confidence ?? '—'}</span>
+        <span className={`w-1.5 h-1.5 rounded-full ${entry.flagged ? 'bg-red-500' : 'bg-slate-600'}`} />
+        <span className="text-[10px] text-slate-400 flex-1 truncate">
+          {entry.risk_category || 'no flag'}
+        </span>
+        <span className="text-[9px] text-slate-600">{dateStr}</span>
+        <ChevronDown className={`w-3 h-3 text-slate-600 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+      </div>
+
+      {entry.bottom_line && !expanded && (
+        <p className="text-[10px] text-slate-500 mt-0.5 line-clamp-1">{entry.bottom_line}</p>
+      )}
+
+      {expanded && (
+        <div className="mt-2 space-y-1.5">
+          {entry.bottom_line && (
+            <p className="text-[11px] text-slate-300 font-medium">{entry.bottom_line}</p>
+          )}
+          {entry.reasoning && (
+            <div>
+              <p className="text-[9px] text-slate-600 uppercase tracking-wider mb-0.5">Reasoning</p>
+              <p className="text-[10px] text-slate-400 leading-relaxed">{entry.reasoning}</p>
+            </div>
+          )}
+          {entry.relevant_signals?.length > 0 && (
+            <div>
+              <p className="text-[9px] text-slate-600 uppercase tracking-wider mb-0.5">Key signals</p>
+              <div className="flex flex-wrap gap-1">
+                {entry.relevant_signals.map((s, i) => (
+                  <span key={i} className="text-[9px] bg-slate-800/60 text-slate-400 px-1.5 py-0.5 rounded">{displaySource(s)}</span>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className="flex gap-2 text-[9px] text-slate-600">
+            <span>{entry.run_type}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
-function TrajectoryLayer({ trajectory, headlineVolume }) {
+function TrajectoryLayer({ trajectory, reasoningTimeline }) {
   const [windowDays, setWindowDays] = useState(7)
+  const [selectedBar, setSelectedBar] = useState(null)
 
   if (!trajectory || trajectory.length === 0) {
     return (
       <div className="rounded-xl border border-slate-800 bg-slate-900/30 px-4 py-3">
-        <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Trajectory</p>
-        <p className="text-[11px] text-slate-600 italic">Trajectory data will appear once enough runs have accumulated.</p>
+        <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Assessment History</p>
+        <p className="text-[11px] text-slate-600 italic">Assessment data will appear once enough runs have accumulated.</p>
       </div>
     )
   }
 
   const cutoff = Date.now() - windowDays * 86400000
-  const windowRuns = trajectory.filter(r => new Date(r.evaluated_at).getTime() >= cutoff)
-
-  const themeData = {}
-  const themeLatest = {}
-  for (const b of THEME_BUCKETS) themeData[b.key] = []
-
-  for (const run of windowRuns) {
-    if (!run.flagged) continue
-    const theme = bucketTheme(run.risk_category)
-    if (themeData[theme]) {
-      themeData[theme].push({ t: new Date(run.evaluated_at).getTime(), confidence: run.confidence ?? 0 })
-      if (!themeLatest[theme]) themeLatest[theme] = run.risk_category
-    }
-  }
-
-  const allConfidencePoints = windowRuns
-    .filter(r => r.confidence != null && r.run_type !== 'gated-skip')
+  const windowRuns = trajectory
+    .filter(r => new Date(r.evaluated_at).getTime() >= cutoff && r.run_type !== 'gated-skip')
     .sort((a, b) => new Date(a.evaluated_at) - new Date(b.evaluated_at))
-    .map(r => r.confidence)
 
   const flaggedCount = windowRuns.filter(r => r.flagged).length
-  const totalAssessed = windowRuns.filter(r => r.run_type !== 'gated-skip').length
+
+  const windowReasoningRuns = (reasoningTimeline ?? [])
+    .filter(r => new Date(r.evaluated_at).getTime() >= cutoff)
+    .sort((a, b) => new Date(b.evaluated_at) - new Date(a.evaluated_at))
 
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/30 px-4 py-3">
-      <div className="flex items-center justify-between mb-2">
-        <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Trajectory</p>
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Assessment History</p>
+          <p className="text-[9px] text-slate-600 mt-0.5">
+            {windowRuns.length} assessments · {flaggedCount} flagged · confidence bars (click for detail)
+          </p>
+        </div>
         <div className="flex gap-1">
           {[7, 14, 30].map(d => (
             <button
               key={d}
-              onClick={() => setWindowDays(d)}
+              onClick={() => { setWindowDays(d); setSelectedBar(null) }}
               className={`px-2 py-0.5 rounded text-[10px] font-semibold border transition-colors ${
                 windowDays === d
                   ? 'text-violet-300 bg-violet-950/40 border-violet-800/60'
@@ -282,60 +356,41 @@ function TrajectoryLayer({ trajectory, headlineVolume }) {
         </div>
       </div>
 
-      {/* Overall confidence sparkline */}
-      <div className="flex items-center gap-2 mb-2 py-1 border-b border-slate-800/40">
-        <span className="text-[10px] text-slate-500 w-28 shrink-0">Overall confidence</span>
-        <MiniSparkline points={allConfidencePoints} flagged={flaggedCount > 0} />
-        {(() => { const t = trendArrow(allConfidencePoints); return <span className={`text-[11px] ${t.color}`}>{t.symbol}</span> })()}
-        <span className="text-[9px] text-slate-600 ml-auto">
-          {flaggedCount}/{totalAssessed} flagged
-        </span>
-      </div>
+      <ConfidenceBarChart
+        runs={windowRuns}
+        selectedIdx={selectedBar}
+        onSelectRun={i => setSelectedBar(selectedBar === i ? null : i)}
+      />
 
-      {/* Per-theme rows */}
-      <div className="space-y-1">
-        {THEME_BUCKETS.map(b => {
-          const points = themeData[b.key]
-            .sort((a, c) => a.t - c.t)
-            .map(p => p.confidence)
-          const hasFlagged = points.length > 0
-          const trend = trendArrow(points)
-          const latest = themeLatest[b.key]
-          return (
-            <div key={b.key} className="py-1">
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] text-slate-500 w-28 shrink-0 truncate">{b.label}</span>
-                {hasFlagged ? (
-                  <>
-                    <MiniSparkline points={points} flagged />
-                    <span className={`text-[11px] ${trend.color}`}>{trend.symbol}</span>
-                    <span className="text-[9px] text-slate-600 ml-auto">{points.length} flag{points.length !== 1 ? 's' : ''}</span>
-                  </>
-                ) : (
-                  <span className="text-[9px] text-slate-700">quiet</span>
-                )}
-              </div>
-              {latest && (
-                <p className="text-[9px] text-slate-500 ml-28 pl-2 mt-0.5 truncate">Latest: {latest}</p>
-              )}
-            </div>
-          )
-        })}
-      </div>
+      {selectedBar != null && windowRuns[selectedBar] && (() => {
+        const r = windowRuns[selectedBar]
+        const match = windowReasoningRuns.find(rr => rr.evaluated_at === r.evaluated_at)
+        if (!match) return (
+          <div className="mt-2 p-2 rounded bg-slate-900/60 border border-slate-800/40">
+            <p className="text-[10px] text-slate-500">
+              {new Date(r.evaluated_at).toLocaleString()} · confidence {r.confidence} · {r.flagged ? r.risk_category : 'not flagged'}
+            </p>
+            <p className="text-[9px] text-slate-600 italic mt-0.5">Detailed reasoning not available for this run (outside the 20 most recent assessed runs).</p>
+          </div>
+        )
+        return (
+          <div className="mt-2 p-2 rounded bg-slate-900/60 border border-slate-800/40">
+            <ReasoningEntry entry={match} />
+          </div>
+        )
+      })()}
 
-      {/* GDELT headline volume */}
-      {headlineVolume?.length > 0 && (
-        <div className="flex items-center gap-2 pt-1.5 mt-1.5 border-t border-slate-800/40">
-          <span className="text-[10px] text-slate-500 w-28 shrink-0">Headline volume</span>
-          <MiniSparkline points={headlineVolume.slice(-24).map(p => p.value)} />
-          {(() => { const t = trendArrow(headlineVolume.slice(-24).map(p => p.value)); return <span className={`text-[11px] ${t.color}`}>{t.symbol}</span> })()}
-          <span className="text-[9px] text-slate-600 ml-auto">GDELT</span>
+      <div className="mt-3">
+        <p className="text-[9px] font-semibold text-slate-500 uppercase tracking-wider mb-2">Recent Assessments</p>
+        <div className="space-y-0.5 max-h-[300px] overflow-y-auto">
+          {windowReasoningRuns.slice(0, 10).map((entry, i) => (
+            <ReasoningEntry key={entry.evaluated_at + i} entry={entry} />
+          ))}
+          {windowReasoningRuns.length === 0 && (
+            <p className="text-[9px] text-slate-600 italic">No assessed runs in this window.</p>
+          )}
         </div>
-      )}
-
-      <p className="text-[9px] text-slate-600 mt-2">
-        {windowRuns.length} runs in {windowDays}d window · sparklines show LLM confidence over time
-      </p>
+      </div>
     </div>
   )
 }
@@ -810,8 +865,8 @@ export default function GeoRegimePanel({ data, loading, error }) {
   const runs = data?.runs ?? []
   const allSignals = data?.signals ?? []
   const trajectory = data?.trajectory ?? []
+  const reasoningTimeline = data?.reasoningTimeline ?? []
   const headlineData = data?.headlines ?? null
-  const headlineVolume = headlineData?.volume ?? []
   const latestRun = runs[0]
 
   const standingSignals = allSignals.filter(s => !s.slug?.startsWith('llm-'))
@@ -882,7 +937,7 @@ export default function GeoRegimePanel({ data, loading, error }) {
                 {view === 'main' && (
                   <>
                     <WorldBriefing latestRun={latestRun} />
-                    <TrajectoryLayer trajectory={trajectory} headlineVolume={headlineVolume} />
+                    <TrajectoryLayer trajectory={trajectory} reasoningTimeline={reasoningTimeline} />
                     <MarketPricing marketPricing={data?.marketPricing} />
                     <Headlines headlineData={headlineData} />
                   </>
