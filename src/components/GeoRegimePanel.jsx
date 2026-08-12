@@ -400,10 +400,11 @@ function TrajectoryLayer({ trajectory, reasoningTimeline }) {
 function MarketPricing({ marketPricing }) {
   if (!marketPricing) return null
   const items = [
-    { key: 'wti', ...marketPricing.wti },
-    { key: 'vix', ...marketPricing.vix },
-    { key: 'hyOas', ...marketPricing.hyOas },
-    { key: 'yen', ...marketPricing.yen },
+    { key: 'wti', ...marketPricing.wti, theme: 'Hormuz / oil shock' },
+    { key: 'brent', ...marketPricing.brent, theme: 'Hormuz / oil shock' },
+    { key: 'natGas', ...marketPricing.natGas, theme: 'Energy supply' },
+    { key: 'gold', ...marketPricing.gold, theme: 'Safe haven / geo stress' },
+    { key: 'copper', ...marketPricing.copper, theme: 'Taiwan / China demand' },
   ].filter(i => i.value != null)
 
   if (items.length === 0) return null
@@ -413,18 +414,71 @@ function MarketPricing({ marketPricing }) {
       <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
         Market Pricing <span className="normal-case font-normal text-slate-600">(independent — not used in geo scoring)</span>
       </p>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
         {items.map(i => (
           <div key={i.key} className="rounded-lg border border-slate-800 bg-slate-950/40 px-2.5 py-1.5">
             <p className="text-[9px] text-slate-500 uppercase tracking-wider">{i.label}</p>
             <p className="text-sm font-semibold tabular-nums text-slate-300">
               {typeof i.value === 'number' ? i.value.toFixed(2) : i.value}
             </p>
+            <p className="text-[8px] text-slate-600">{i.theme}</p>
           </div>
         ))}
       </div>
       <p className="text-[9px] text-slate-600 mt-1.5">
         Compare against geo severity — these values do not influence the risk assessment.
+      </p>
+    </div>
+  )
+}
+
+/* ── Polymarket Prediction Markets ── */
+
+const THEME_LABELS = {
+  oil_energy: 'Oil / Energy', carry_unwind: 'Carry Unwind',
+  equity_drawdown: 'Equity / Drawdown', safe_haven: 'Safe Haven', freight_shock: 'Freight / Shipping',
+}
+
+function probColor(p) {
+  if (p >= 0.5) return 'text-red-400'
+  if (p >= 0.2) return 'text-amber-400'
+  return 'text-slate-400'
+}
+
+function PolymarketLayer({ polymarket }) {
+  if (!polymarket || polymarket.length === 0) return null
+
+  const byTheme = {}
+  for (const m of polymarket) {
+    if (m.closed) continue
+    if (!byTheme[m.theme]) byTheme[m.theme] = []
+    byTheme[m.theme].push(m)
+  }
+
+  return (
+    <div className="rounded-lg border border-slate-800 bg-slate-900/30 px-3 py-2">
+      <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+        Prediction Markets <span className="normal-case font-normal text-slate-600">(Polymarket — crowd implied probabilities)</span>
+      </p>
+      <div className="space-y-2">
+        {Object.entries(byTheme).map(([theme, markets]) => (
+          <div key={theme}>
+            <p className="text-[9px] text-slate-600 uppercase tracking-wider mb-1">{THEME_LABELS[theme] || theme}</p>
+            <div className="space-y-1">
+              {markets.map(m => (
+                <div key={m.slug} className="flex items-center gap-2 rounded-lg border border-slate-800/60 bg-slate-950/40 px-2.5 py-1.5">
+                  <span className={`text-sm font-bold tabular-nums ${probColor(m.yesPrice)} min-w-[3rem]`}>
+                    {m.yesPrice != null ? `${(m.yesPrice * 100).toFixed(0)}%` : '—'}
+                  </span>
+                  <span className="text-[10px] text-slate-400 flex-1">{m.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="text-[9px] text-slate-600 mt-1.5">
+        Implied probabilities from Polymarket CLOB — compare with geo trajectory for convergence/divergence.
       </p>
     </div>
   )
@@ -939,6 +993,7 @@ export default function GeoRegimePanel({ data, loading, error }) {
                     <WorldBriefing latestRun={latestRun} />
                     <TrajectoryLayer trajectory={trajectory} reasoningTimeline={reasoningTimeline} />
                     <MarketPricing marketPricing={data?.marketPricing} />
+                    <PolymarketLayer polymarket={data?.polymarket} />
                     <Headlines headlineData={headlineData} />
                   </>
                 )}

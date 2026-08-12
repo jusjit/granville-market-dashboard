@@ -121,13 +121,13 @@ async function gatherSignals() {
           .slice(0, 25)
           .map(([country, v]) => ({ country, ...v }))
       }),
-    // FRED: macro stress inputs + the market-pricing cross-checks the prompt
-    // requires (spot oil, SPX IV proxy, yen) so the model can verify what is
-    // already priced BEFORE flagging.
-    hyOas: fredKey ? fredSeries('BAMLH0A0HYM2', fredKey) : Promise.resolve(null), // HY credit spreads
-    yen: fredKey ? fredSeries('DEXJPUS', fredKey) : Promise.resolve(null),        // USD/JPY fixings
-    wtiSpot: fredKey ? fredSeries('DCOILWTICO', fredKey) : Promise.resolve(null), // spot oil cross-check
-    vix: fredKey ? fredSeries('VIXCLS', fredKey) : Promise.resolve(null),         // SPX IV cross-check
+    // FRED: geo-relevant commodity cross-checks (excluded from LLM prompt,
+    // displayed independently on the dashboard)
+    wtiSpot: fredKey ? fredSeries('DCOILWTICO', fredKey) : Promise.resolve(null),   // WTI crude
+    brent: fredKey ? fredSeries('DCOILBRENTEU', fredKey) : Promise.resolve(null),  // Brent crude
+    natGas: fredKey ? fredSeries('DHHNGSP', fredKey) : Promise.resolve(null),      // Henry Hub natural gas
+    gold: fredKey ? fredSeries('GOLDAMGBD228NLBM', fredKey) : Promise.resolve(null), // London AM gold fix
+    copper: fredKey ? fredSeries('PCOPPUSDM', fredKey) : Promise.resolve(null),    // copper (monthly)
   }
   const keys = Object.keys(tasks)
   const settled = await Promise.allSettled(Object.values(tasks))
@@ -218,10 +218,11 @@ function computeMaterialState(s) {
 // layer ("what is the market currently pricing?"), never fed to the LLM.
 function extractMarketPricing(s) {
   return {
-    hyOas: { value: latest(s.hyOas), series: 'BAMLH0A0HYM2', label: 'HY OAS (credit spreads)' },
-    yen: { value: latest(s.yen), series: 'DEXJPUS', label: 'USD/JPY' },
-    wti: { value: latest(s.wtiSpot), series: 'DCOILWTICO', label: 'WTI Spot' },
-    vix: { value: latest(s.vix), series: 'VIXCLS', label: 'VIX' },
+    wti: { value: latest(s.wtiSpot), series: 'DCOILWTICO', label: 'WTI Crude' },
+    brent: { value: latest(s.brent), series: 'DCOILBRENTEU', label: 'Brent Crude' },
+    natGas: { value: latest(s.natGas), series: 'DHHNGSP', label: 'Natural Gas (HH)' },
+    gold: { value: latest(s.gold), series: 'GOLDAMGBD228NLBM', label: 'Gold (London AM)' },
+    copper: { value: latest(s.copper), series: 'PCOPPUSDM', label: 'Copper (monthly)' },
   }
 }
 
@@ -386,7 +387,7 @@ const SIGNAL_TO_MATERIAL_KEY = {
 }
 
 // Market data keys — excluded from the LLM prompt and material-state diffing.
-const MARKET_SIGNAL_KEYS = new Set(['hyOas', 'yen', 'wtiSpot', 'vix'])
+const MARKET_SIGNAL_KEYS = new Set(['wtiSpot', 'brent', 'natGas', 'gold', 'copper'])
 
 // Delta prompt — used by gated-triggered mode. Chokepoints (+ hormuz) are
 // core to the trading thesis so they're always sent in full regardless of
@@ -502,6 +503,44 @@ async function callOneMin(prompt, key, model = MODEL) {
   throw new Error(`1min.ai failed 3× — ${errors.join(' | ')}`)
 }
 
+// ── Polymarket watchlist (curated, geo-relevant prediction markets) ────────
+const POLYMARKET_WATCHLIST = [
+  { slug: 'will-china-invade-taiwan-before-2027', theme: 'equity_drawdown', label: 'China invades Taiwan by end of 2026' },
+  { slug: 'us-recession-by-end-of-2026', theme: 'equity_drawdown', label: 'US recession by end of 2026' },
+  { slug: 'israel-x-hamas-ceasefire-cancelled-by-december-31', theme: 'oil_energy', label: 'Israel-Hamas ceasefire cancelled by Dec 2025' },
+  { slug: 'israel-x-hamas-ceasefire-phase-ii-by-december-31-632', theme: 'oil_energy', label: 'Israel-Hamas ceasefire Phase II by Dec 2025' },
+  { slug: 'will-russia-invade-a-nato-country-by-december-31-2026', theme: 'safe_haven', label: 'Russia invades NATO country by end of 2026' },
+  { slug: 'nato-x-russia-military-clash-by-october-31-2026', theme: 'safe_haven', label: 'NATO-Russia military clash by Oct 2026' },
+  { slug: 'will-russia-capture-kostyantynivka-by-september-30-256-333-352', theme: 'safe_haven', label: 'Russia captures Kostyantynivka by Sep 2025' },
+  { slug: 'putin-out-before-2027-346', theme: 'safe_haven', label: 'Putin out as president by end of 2026' },
+]
+
+async function fetchPolymarketPrices() {
+  try {
+    const settled = await Promise.allSettled(
+      POLYMARKET_WATCHLIST.map(async (item) => {
+        const r = await fetch(`https://gamma-api.polymarket.com/markets?slug=${item.slug}`, {
+          signal: AbortSignal.timeout(8000),
+          headers: { 'User-Agent': 'GranvilleDashboard/1.0' },
+        })
+        if (!r.ok) return null
+        const markets = await r.json()
+        if (!markets?.[0]) return null
+        const m = markets[0]
+        const prices = JSON.parse(m.outcomePrices ?? '[]')
+        return {
+          slug: item.slug, theme: item.theme, label: item.label,
+          question: m.question, yesPrice: parseFloat(prices[0]) || null, closed: m.closed === true,
+        }
+      })
+    )
+    return settled.filter(s => s.status === 'fulfilled' && s.value).map(s => s.value)
+  } catch (e) {
+    console.log('Polymarket fetch error:', e.message)
+    return []
+  }
+}
+
 const GDELT_QUERY = '(hormuz OR "bab el-mandeb" OR houthi OR "red sea" OR "taiwan strait" OR "south china sea" OR "malacca strait" OR "panama canal" OR sanctions OR tariff OR "trade war" OR embargo OR OPEC OR "nord stream" OR pipeline OR "lng export" OR nuclear OR "ballistic missile" OR NATO OR ukraine OR "black sea" OR crimea OR coup OR "martial law" OR "regime change" OR "cyber attack" OR "critical infrastructure" OR "rare earth" OR TSMC OR semiconductor)'
 const GDELT_ART_URL = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(GDELT_QUERY)}&mode=artlist&maxrecords=50&format=json&sort=datedesc`
 const GDELT_VOL_URL = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(GDELT_QUERY)}&mode=timelinevol&format=json`
@@ -523,9 +562,16 @@ const GDELT_HEADERS = { 'User-Agent': 'GranvilleDashboard/1.0', 'Referer': 'http
 
 async function gdeltFetchWithRetry(url, retries = 3) {
   for (let i = 0; i < retries; i++) {
-    if (i > 0) await sleep(5000 * i)
+    if (i > 0) await sleep(8000 + 4000 * i)
     const r = await fetch(url, { signal: AbortSignal.timeout(20000), headers: GDELT_HEADERS })
-    if (r.ok) return r.json()
+    if (r.ok) {
+      const text = await r.text()
+      if (text.includes('limit requests')) {
+        console.log(`GDELT rate-limited in body (attempt ${i + 1}/${retries}), waiting...`)
+        continue
+      }
+      try { return JSON.parse(text) } catch { console.log('GDELT non-JSON response'); continue }
+    }
     const body = await r.text().catch(() => '')
     if (body.includes('limit requests')) {
       console.log(`GDELT rate-limited (attempt ${i + 1}/${retries}), waiting...`)
@@ -543,7 +589,7 @@ async function fetchGdeltHeadlines() {
     if (data) results.articles = (data.articles ?? []).slice(0, 50)
   } catch (e) { console.log('GDELT artlist error:', e.message) }
   try {
-    await sleep(5000)
+    await sleep(8000)
     const data = await gdeltFetchWithRetry(GDELT_VOL_URL)
     if (data) results.volume = (data.timeline?.[0]?.data ?? []).map(d => ({ date: d.date, value: d.value }))
   } catch (e) { console.log('GDELT volume error:', e.message) }
@@ -696,16 +742,19 @@ async function handleReadOnly(req, res) {
         fetch(`${c.url}/rest/v1/geo_regime_runs?select=evaluated_at,run_type,flagged,confidence,risk_category,verdict&run_type=neq.gated-skip&order=evaluated_at.desc&limit=20`, { headers: c.headers })
       )
     }
-    const results = await Promise.all(fetches)
-    const [runsRes, signalsRes, regimeRes, snapshotRes] = results
+    const [dbResults, polymarket] = await Promise.all([
+      Promise.all(fetches),
+      fetchPolymarketPrices().catch(() => []),
+    ])
+    const [runsRes, signalsRes, regimeRes, snapshotRes] = dbResults
     const [runs, signals, regime, snapshot] = await Promise.all([
       runsRes.ok ? runsRes.json() : [],
       signalsRes.ok ? signalsRes.json() : [],
       regimeRes.ok ? regimeRes.json() : [],
       snapshotRes.ok ? snapshotRes.json() : [],
     ])
-    const trajectory = window > 0 && results[4]?.ok ? await results[4].json() : []
-    const assessedRuns = window > 0 && results[5]?.ok ? await results[5].json() : []
+    const trajectory = window > 0 && dbResults[4]?.ok ? await dbResults[4].json() : []
+    const assessedRuns = window > 0 && dbResults[5]?.ok ? await dbResults[5].json() : []
     const reasoningTimeline = assessedRuns.map(r => ({
       evaluated_at: r.evaluated_at, run_type: r.run_type, flagged: r.flagged,
       confidence: r.confidence, risk_category: r.risk_category,
@@ -714,7 +763,7 @@ async function handleReadOnly(req, res) {
       bottom_line: r.verdict?.briefing?.bottom_line || null,
     }))
     res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=120')
-    return res.status(200).json({ runs, signals, regime: regime[0] ?? null, tierTracking: snapshot[0]?.tier_tracking ?? null, marketPricing: snapshot[0]?.market_pricing ?? null, headlines: snapshot[0]?.headlines ?? null, trajectory, reasoningTimeline })
+    return res.status(200).json({ runs, signals, regime: regime[0] ?? null, tierTracking: snapshot[0]?.tier_tracking ?? null, marketPricing: snapshot[0]?.market_pricing ?? null, headlines: snapshot[0]?.headlines ?? null, trajectory, reasoningTimeline, polymarket })
   } catch (err) {
     return res.status(500).json({ error: err.message })
   }
@@ -737,7 +786,9 @@ export default async function handler(req, res) {
   const scanFull = req.query?.scan === 'full' || body.scan === 'full'
 
   try {
-    const [{ signals, errors }, headlines] = await Promise.all([gatherSignals(), fetchGdeltHeadlines()])
+    const { signals, errors } = await gatherSignals()
+    await sleep(6000)
+    const headlines = await fetchGdeltHeadlines()
     const material = computeMaterialState(signals)
     const marketPricing = extractMarketPricing(signals)
     const inputHash = JSON.stringify(material)
