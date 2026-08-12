@@ -425,14 +425,17 @@ violet pill-button switcher (same pattern as AlmaPanel sigma band selector).
    (PCOPPUSDM). Each tile labeled with its geo-theme relevance. Removed
    VIX/HY OAS/USD/JPY (redundant with main dashboard). Baltic Dry Index
    not available on FRED — would need external source.
-4. **Polymarket Layer** (added 2026-08-12) — curated 8-market watchlist of
-   prediction markets relevant to the 5 monitored themes. Fetched live via
-   Polymarket Gamma API (`gamma-api.polymarket.com/markets?slug=X`, no auth)
-   in parallel with Supabase reads on every GET. Shows implied probability
-   grouped by theme. Markets: Israel-Hamas ceasefire (oil/energy), China
-   invades Taiwan + US recession (equity/drawdown), Russia-NATO clash +
-   Putin + Kostyantynivka (safe haven). Watchlist is manually curated in
-   `POLYMARKET_WATCHLIST` const — update slugs when markets expire/close.
+4. **Polymarket Layer** (added 2026-08-12) — dynamic search across Polymarket
+   events for geo-relevant prediction markets. Scans up to 600 events via
+   Gamma API (`gamma-api.polymarket.com/events`, no auth), matches questions
+   against 12 regex patterns in `POLYMARKET_SEARCH_TERMS` covering: Hormuz/
+   Iran, Israel/Hamas/Gaza, oil prices, Taiwan/China, recession, Iran nuclear,
+   gold, Suez/Red Sea/Houthis, BOJ, tariffs, semiconductors, natural gas.
+   `POLYMARKET_EXCLUDE` regex filters out Russia/Putin/Ukraine markets.
+   Returns top 15 by implied probability, deduped. Fetched live in parallel
+   with Supabase reads on every GET. Shows implied probability grouped by
+   theme. To adjust coverage: edit `POLYMARKET_SEARCH_TERMS` patterns or
+   `POLYMARKET_EXCLUDE` in `api/aggregate-geo-regime.js`.
 5. **Headlines** (redesigned 2026-08-02) — server-side GDELT fetch (50
    articles per cron run, all languages, broadened query covering chokepoints,
    sanctions, tariffs, OPEC, pipelines, nuclear, NATO, Ukraine, Panama/Malacca,
