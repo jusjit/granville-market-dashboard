@@ -467,12 +467,16 @@ to LLM output per call.
 recent assessed runs with full verdict (for reasoning timeline) in parallel.
 Returns `trajectory`, `reasoningTimeline` arrays alongside existing response.
 
-**GDELT fetch fix** (2026-08-09, updated 2026-08-12): `gdeltFetchWithRetry()`
-retries 3x with 8s+4s*i backoff, sends User-Agent/Referer headers. GDELT
-now runs sequentially AFTER `gatherSignals()` with 6s gap (was parallel via
-`Promise.all` — concurrent outbound requests triggered GDELT rate limiting).
-Also handles 200-status rate-limit responses (GDELT sometimes returns HTTP
-200 with plaintext error instead of 429). 8s gap between artlist and volume.
+**GDELT fetch fix** (2026-08-09, updated 2026-08-12): GDELT rate-limits
+queries with many OR terms (the full 28-term query was consistently
+rejected). Fixed by splitting into 8 small batches of 3-4 terms each,
+queried sequentially with 6s delays between batches. Each batch fetches
+10 articles; results are deduplicated by URL and capped at 50 total.
+Volume timeline still uses the full query (single request, less strict).
+`gdeltFetchWithRetry()` retries 2x with 8s+4s*i backoff, sends
+User-Agent/Referer headers, handles 200-status rate-limit responses.
+Total GDELT fetch time ~50s (8 batches × 6s gaps), well within Vercel
+function timeout (480s).
 
 **API `handleReadOnly` change** (updated 2026-08-12): now also fetches
 Polymarket prices in parallel with Supabase reads. Returns `polymarket`
