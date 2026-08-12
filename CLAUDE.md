@@ -320,7 +320,7 @@ Three run modes, tagged via `geo_regime_runs.run_type`:
   was the "adjust if there's a better rule" default, kept as-is after review);
   every other category sent in full ONLY if it appears in the diff, otherwise a
   compact bucketed summary line. This is the routine `geo-regime-aggregator.yml`
-  cron (every 4h, unchanged schedule).
+  cron (every 8h since 2026-08-12, was 4h).
 - **full-scan**: always the complete dataset regardless of diff. New
   `geo-regime-full-scan.yml` cron, 2x/day (13:25/21:05 UTC weekdays, matches
   `dashboard-snapshot.yml` cadence) — `?scan=full`. Preserves full
@@ -443,9 +443,10 @@ violet pill-button switcher (same pattern as AlmaPanel sigma band selector).
    into 5-8 themes with importance rating (high/medium/low), context sentence,
    and convergence detection. Expandable per-group source lists. Stored in
    `geo_regime_last_snapshot.headlines` jsonb (articles + volume + analysis).
-   Runs every 4h with the cron — no client-side GDELT fetch (eliminates
+   Runs every 8h with the cron — no client-side GDELT fetch (eliminates
    mobile timeout issues). Analysis LLM call runs in parallel with the main
-   geo assessment (no added wall-clock time), also runs on gated-skip.
+   geo assessment (no added wall-clock time). Skipped on gated-skip to
+   reduce token burn (2026-08-12).
 
 **Diagnostics tab** (pipeline debugging — all former default-view content):
 1. **Regime Summary** — severity tiles (Oil Shock, Carry Unwind, Equity
@@ -487,7 +488,7 @@ array in response.
   state, fetched on `refresh()`.
 
 **Related infrastructure** (unchanged):
-- Cron: `.github/workflows/geo-regime-aggregator.yml` — every 4h + workflow_dispatch
+- Cron: `.github/workflows/geo-regime-aggregator.yml` — every 8h + workflow_dispatch
 - Supabase schema: `../geo-monitor-scaffold/*.sql` (all applied)
 - worldmonitor clone: `../worldmonitor` (branch `geo-variant`)
 
