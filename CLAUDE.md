@@ -419,8 +419,21 @@ violet pill-button switcher (same pattern as AlmaPanel sigma band selector).
    `reasoningTimeline` (20 most recent non-skip runs with verdict excerpts).
    `displaySource()` maps raw signal IDs to human-readable names (e.g.
    `thermal:ru:65-0-110-5:...` → "Thermal anomaly (RU)").
-3. **Market Pricing** — unchanged (WTI, VIX, HY OAS, USD/JPY tiles).
-4. **Headlines** (redesigned 2026-08-02) — server-side GDELT fetch (50
+3. **Market Pricing** (revised 2026-08-12) — geo-relevant commodities from
+   FRED: WTI Crude (DCOILWTICO), Brent Crude (DCOILBRENTEU), Natural Gas
+   Henry Hub (DHHNGSP), Gold London AM (GOLDAMGBD228NLBM), Copper monthly
+   (PCOPPUSDM). Each tile labeled with its geo-theme relevance. Removed
+   VIX/HY OAS/USD/JPY (redundant with main dashboard). Baltic Dry Index
+   not available on FRED — would need external source.
+4. **Polymarket Layer** (added 2026-08-12) — curated 8-market watchlist of
+   prediction markets relevant to the 5 monitored themes. Fetched live via
+   Polymarket Gamma API (`gamma-api.polymarket.com/markets?slug=X`, no auth)
+   in parallel with Supabase reads on every GET. Shows implied probability
+   grouped by theme. Markets: Israel-Hamas ceasefire (oil/energy), China
+   invades Taiwan + US recession (equity/drawdown), Russia-NATO clash +
+   Putin + Kostyantynivka (safe haven). Watchlist is manually curated in
+   `POLYMARKET_WATCHLIST` const — update slugs when markets expire/close.
+5. **Headlines** (redesigned 2026-08-02) — server-side GDELT fetch (50
    articles per cron run, all languages, broadened query covering chokepoints,
    sanctions, tariffs, OPEC, pipelines, nuclear, NATO, Ukraine, Panama/Malacca,
    coups, cyber, rare earth, semiconductors). LLM analysis groups headlines
@@ -450,9 +463,16 @@ to LLM output per call.
 recent assessed runs with full verdict (for reasoning timeline) in parallel.
 Returns `trajectory`, `reasoningTimeline` arrays alongside existing response.
 
-**GDELT fetch fix** (2026-08-09): `gdeltFetchWithRetry()` retries 3x with
-5s backoff, sends User-Agent/Referer headers to avoid GDELT rate limiting.
-Previous silent failure (empty `catch {}`) replaced with logged retries.
+**GDELT fetch fix** (2026-08-09, updated 2026-08-12): `gdeltFetchWithRetry()`
+retries 3x with 8s+4s*i backoff, sends User-Agent/Referer headers. GDELT
+now runs sequentially AFTER `gatherSignals()` with 6s gap (was parallel via
+`Promise.all` — concurrent outbound requests triggered GDELT rate limiting).
+Also handles 200-status rate-limit responses (GDELT sometimes returns HTTP
+200 with plaintext error instead of 429). 8s gap between artlist and volume.
+
+**API `handleReadOnly` change** (updated 2026-08-12): now also fetches
+Polymarket prices in parallel with Supabase reads. Returns `polymarket`
+array in response.
 
 **Files**:
 - `api/aggregate-geo-regime.js` — unauthenticated GET returns read-only regime
