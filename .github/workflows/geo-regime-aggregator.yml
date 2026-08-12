@@ -6,7 +6,7 @@ on:
     # the LLM entirely (gated-skip) — only material changes trigger a call,
     # and that call sends deltas + chokepoints-always-full, not the full
     # payload. See api/aggregate-geo-regime.js header comment for the 3 run modes.
-    - cron: '10 */4 * * *'  # every 4 hours (offset :10 to dodge top-of-hour congestion)
+    - cron: '10 */8 * * *'  # every 8 hours (offset :10 to dodge top-of-hour congestion)
   workflow_dispatch:  # manual on-demand trigger
     inputs:
       force:

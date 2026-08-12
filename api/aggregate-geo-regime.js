@@ -826,7 +826,6 @@ export default async function handler(req, res) {
 
     // ── Gated skip: no material change, not forced, not a full scan ────────
     if (!scanFull && !force && !diff.changed) {
-      headlines.analysis = await analyzeHeadlines(headlines.articles, oneMinKey)
       await writeLastSnapshot(gated.nextConfirmed, gated.nextPending, signals, tierTracking, marketPricing, headlines)
       const skipVerdict = {
         flagged: false, skipped: true, reason: 'no material change since last snapshot',
