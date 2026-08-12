@@ -503,38 +503,58 @@ async function callOneMin(prompt, key, model = MODEL) {
   throw new Error(`1min.ai failed 3× — ${errors.join(' | ')}`)
 }
 
-// ── Polymarket watchlist (curated, geo-relevant prediction markets) ────────
-const POLYMARKET_WATCHLIST = [
-  { slug: 'will-china-invade-taiwan-before-2027', theme: 'equity_drawdown', label: 'China invades Taiwan by end of 2026' },
-  { slug: 'us-recession-by-end-of-2026', theme: 'equity_drawdown', label: 'US recession by end of 2026' },
-  { slug: 'israel-x-hamas-ceasefire-cancelled-by-december-31', theme: 'oil_energy', label: 'Israel-Hamas ceasefire cancelled by Dec 2025' },
-  { slug: 'israel-x-hamas-ceasefire-phase-ii-by-december-31-632', theme: 'oil_energy', label: 'Israel-Hamas ceasefire Phase II by Dec 2025' },
-  { slug: 'will-russia-invade-a-nato-country-by-december-31-2026', theme: 'safe_haven', label: 'Russia invades NATO country by end of 2026' },
-  { slug: 'nato-x-russia-military-clash-by-october-31-2026', theme: 'safe_haven', label: 'NATO-Russia military clash by Oct 2026' },
-  { slug: 'will-russia-capture-kostyantynivka-by-september-30-256-333-352', theme: 'safe_haven', label: 'Russia captures Kostyantynivka by Sep 2025' },
-  { slug: 'putin-out-before-2027-346', theme: 'safe_haven', label: 'Putin out as president by end of 2026' },
+// ── Polymarket — dynamic search across geo-relevant prediction markets ────
+const POLYMARKET_SEARCH_TERMS = [
+  { query: /hormuz|iran.*block|persian.gulf|strait.*closure/i, theme: 'oil_energy' },
+  { query: /israel.*hamas|israel.*ceasefire|gaza|hezbollah/i, theme: 'oil_energy' },
+  { query: /oil.*price|crude.*price|opec.*cut|oil.*embargo|barrel/i, theme: 'oil_energy' },
+  { query: /taiwan|china.*invad|south.china.sea/i, theme: 'equity_drawdown' },
+  { query: /recession|market.*crash|bear.*market/i, theme: 'equity_drawdown' },
+  { query: /iran.*nuc|iran.*npt|iran.*coup/i, theme: 'safe_haven' },
+  { query: /gold.*price|gold.*\$|gold.*per.*oz|price.*gold/i, theme: 'safe_haven' },
+  { query: /suez|red.sea|houthi|shipping.*disrupt|freight/i, theme: 'freight_shock' },
+  { query: /boj|bank.of.japan|yen/i, theme: 'carry_unwind' },
+  { query: /tariff|trade.war|sanction.*china|embargo/i, theme: 'equity_drawdown' },
+  { query: /copper|semiconductor|tsmc|rare.earth/i, theme: 'equity_drawdown' },
+  { query: /natural.gas|lng|pipeline.*disrupt|energy.*crisis/i, theme: 'oil_energy' },
 ]
+const POLYMARKET_EXCLUDE = /russia|putin|ukraine|nato.*russia|kremlin|moscow|zelensky/i
 
 async function fetchPolymarketPrices() {
   try {
-    const settled = await Promise.allSettled(
-      POLYMARKET_WATCHLIST.map(async (item) => {
-        const r = await fetch(`https://gamma-api.polymarket.com/markets?slug=${item.slug}`, {
-          signal: AbortSignal.timeout(8000),
-          headers: { 'User-Agent': 'GranvilleDashboard/1.0' },
-        })
-        if (!r.ok) return null
-        const markets = await r.json()
-        if (!markets?.[0]) return null
-        const m = markets[0]
-        const prices = JSON.parse(m.outcomePrices ?? '[]')
-        return {
-          slug: item.slug, theme: item.theme, label: item.label,
-          question: m.question, yesPrice: parseFloat(prices[0]) || null, closed: m.closed === true,
-        }
+    const allMarkets = []
+    for (let offset = 0; offset < 600; offset += 200) {
+      const r = await fetch(`https://gamma-api.polymarket.com/events?closed=false&limit=200&offset=${offset}`, {
+        signal: AbortSignal.timeout(10000),
+        headers: { 'User-Agent': 'GranvilleDashboard/1.0' },
       })
-    )
-    return settled.filter(s => s.status === 'fulfilled' && s.value).map(s => s.value)
+      if (!r.ok) break
+      const events = await r.json()
+      if (!events?.length) break
+      for (const e of events) {
+        for (const m of (e.markets ?? [])) {
+          const q = m.question ?? ''
+          if (POLYMARKET_EXCLUDE.test(q)) continue
+          if (m.closed) continue
+          const prices = typeof m.outcomePrices === 'string' ? JSON.parse(m.outcomePrices) : (m.outcomePrices ?? [])
+          const yesPrice = parseFloat(prices[0]) || null
+          if (!yesPrice || yesPrice <= 0.005) continue
+          for (const term of POLYMARKET_SEARCH_TERMS) {
+            if (term.query.test(q) || term.query.test(e.title ?? '')) {
+              allMarkets.push({ slug: m.slug, theme: term.theme, question: q, yesPrice })
+              break
+            }
+          }
+        }
+      }
+    }
+    allMarkets.sort((a, b) => b.yesPrice - a.yesPrice)
+    const seen = new Set()
+    return allMarkets.filter(m => {
+      if (seen.has(m.slug)) return false
+      seen.add(m.slug)
+      return true
+    }).slice(0, 15)
   } catch (e) {
     console.log('Polymarket fetch error:', e.message)
     return []

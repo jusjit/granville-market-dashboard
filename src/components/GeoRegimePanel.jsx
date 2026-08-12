@@ -470,7 +470,7 @@ function PolymarketLayer({ polymarket }) {
                   <span className={`text-sm font-bold tabular-nums ${probColor(m.yesPrice)} min-w-[3rem]`}>
                     {m.yesPrice != null ? `${(m.yesPrice * 100).toFixed(0)}%` : '—'}
                   </span>
-                  <span className="text-[10px] text-slate-400 flex-1">{m.label}</span>
+                  <span className="text-[10px] text-slate-400 flex-1">{m.question || m.label}</span>
                 </div>
               ))}
             </div>
