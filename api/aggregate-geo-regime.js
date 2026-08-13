@@ -562,17 +562,12 @@ async function fetchPolymarketPrices() {
 }
 
 const GDELT_QUERY_BATCHES = [
-  '(hormuz OR "bab el-mandeb" OR houthi OR "red sea")',
-  '("taiwan strait" OR "south china sea" OR "malacca strait" OR "panama canal")',
-  '(sanctions OR tariff OR "trade war" OR embargo)',
-  '(OPEC OR "nord stream" OR pipeline OR "lng export")',
-  '(nuclear OR "ballistic missile" OR NATO OR ukraine)',
-  '("black sea" OR crimea OR coup OR "martial law")',
-  '("regime change" OR "cyber attack" OR "critical infrastructure")',
-  '("rare earth" OR TSMC OR semiconductor)',
+  '(hormuz OR "bab el-mandeb" OR houthi OR "red sea" OR "taiwan strait" OR "south china sea")',
+  '("malacca strait" OR "panama canal" OR sanctions OR tariff OR "trade war" OR embargo)',
+  '(OPEC OR "nord stream" OR pipeline OR "lng export" OR nuclear OR "ballistic missile")',
+  '(NATO OR ukraine OR "black sea" OR crimea OR coup OR "martial law")',
+  '("regime change" OR "cyber attack" OR "critical infrastructure" OR "rare earth" OR TSMC OR semiconductor)',
 ]
-const GDELT_FULL_QUERY = '(hormuz OR "bab el-mandeb" OR houthi OR "red sea" OR "taiwan strait" OR "south china sea" OR "malacca strait" OR "panama canal" OR sanctions OR tariff OR "trade war" OR embargo OR OPEC OR "nord stream" OR pipeline OR "lng export" OR nuclear OR "ballistic missile" OR NATO OR ukraine OR "black sea" OR crimea OR coup OR "martial law" OR "regime change" OR "cyber attack" OR "critical infrastructure" OR "rare earth" OR TSMC OR semiconductor)'
-const GDELT_VOL_URL = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(GDELT_FULL_QUERY)}&mode=timelinevol&format=json`
 
 const HEADLINE_ANALYSIS_PROMPT = `You are a geopolitical intelligence analyst. Given a list of recent headlines from global news sources, group them by theme and assess each group's significance for global markets and geopolitical stability.
 
@@ -591,7 +586,7 @@ const GDELT_HEADERS = { 'User-Agent': 'GranvilleDashboard/1.0', 'Referer': 'http
 
 async function gdeltFetchWithRetry(url, retries = 3) {
   for (let i = 0; i < retries; i++) {
-    if (i > 0) await sleep(8000 + 4000 * i)
+    if (i > 0) await sleep(6000)
     const r = await fetch(url, { signal: AbortSignal.timeout(20000), headers: GDELT_HEADERS })
     if (r.ok) {
       const text = await r.text()
@@ -615,7 +610,7 @@ async function fetchGdeltHeadlines() {
   const results = { articles: [], volume: [], fetchedAt: new Date().toISOString() }
   const seen = new Set()
   for (let b = 0; b < GDELT_QUERY_BATCHES.length; b++) {
-    if (b > 0) await sleep(6000)
+    if (b > 0) await sleep(5500)
     const url = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(GDELT_QUERY_BATCHES[b])}&mode=artlist&maxrecords=10&format=json&sort=datedesc`
     try {
       const data = await gdeltFetchWithRetry(url, 2)
@@ -627,11 +622,6 @@ async function fetchGdeltHeadlines() {
       console.log(`GDELT batch ${b + 1}/${GDELT_QUERY_BATCHES.length}: ${data?.articles?.length ?? 0} articles`)
     } catch (e) { console.log(`GDELT batch ${b + 1} error:`, e.message) }
   }
-  try {
-    await sleep(6000)
-    const data = await gdeltFetchWithRetry(GDELT_VOL_URL, 2)
-    if (data) results.volume = (data.timeline?.[0]?.data ?? []).map(d => ({ date: d.date, value: d.value }))
-  } catch (e) { console.log('GDELT volume error:', e.message) }
   results.articles = results.articles.slice(0, 50)
   console.log(`GDELT total: ${results.articles.length} unique articles`)
   return results
@@ -828,7 +818,7 @@ export default async function handler(req, res) {
 
   try {
     const { signals, errors } = await gatherSignals()
-    await sleep(6000)
+    await sleep(3000)
     const headlines = await fetchGdeltHeadlines()
     const material = computeMaterialState(signals)
     const marketPricing = extractMarketPricing(signals)
