@@ -184,15 +184,18 @@ function WorldBriefing({ latestRun }) {
               <p className="text-[11px] font-semibold text-slate-300 mb-0.5">{t.region}</p>
               <p className="text-[11px] text-slate-400 leading-relaxed">{t.situation}</p>
               {t.sources_confirmed?.length > 0 && (
-                <div className="flex items-center gap-1 mt-1.5">
+                <div className="flex flex-wrap items-center gap-1 mt-1.5">
                   <span className="text-[9px] text-slate-600">Sources:</span>
-                  {t.sources_confirmed.map((s, j) => (
+                  {t.sources_confirmed.slice(0, 5).map((s, j) => (
                     <Tip key={j} term={s}>
-                      <span className="px-1 py-0.5 rounded text-[9px] bg-slate-800/60 border border-slate-700/40 text-slate-500">
+                      <span className="px-1 py-0.5 rounded text-[9px] bg-slate-800/60 border border-slate-700/40 text-slate-500 whitespace-nowrap">
                         {displaySource(s)}
                       </span>
                     </Tip>
                   ))}
+                  {t.sources_confirmed.length > 5 && (
+                    <span className="text-[9px] text-slate-600">+{t.sources_confirmed.length - 5} more</span>
+                  )}
                 </div>
               )}
             </div>

@@ -561,6 +561,16 @@ async function fetchPolymarketPrices() {
   }
 }
 
+const GNEWS_SEARCH_TERMS = [
+  'strait of hormuz OR red sea OR houthi',
+  'taiwan strait OR south china sea',
+  'sanctions OR tariff OR trade war',
+  'OPEC OR oil pipeline OR LNG',
+  'NATO OR ballistic missile OR nuclear',
+  'cyber attack OR critical infrastructure',
+  'semiconductor OR rare earth OR TSMC',
+]
+
 const GDELT_QUERY_BATCHES = [
   '(hormuz OR "bab el-mandeb" OR houthi OR "red sea" OR "taiwan strait" OR "south china sea")',
   '("malacca strait" OR "panama canal" OR sanctions OR tariff OR "trade war" OR embargo)',
@@ -584,30 +594,46 @@ headline_indices are 0-based positions in the input array. Every headline must a
 
 const GDELT_HEADERS = { 'User-Agent': 'GranvilleDashboard/1.0', 'Referer': 'https://private-market-dashboard.vercel.app/' }
 
-async function gdeltFetchWithRetry(url, retries = 3) {
+async function fetchGnewsHeadlines(gnewsKey) {
+  const articles = []
+  const seen = new Set()
+  for (const q of GNEWS_SEARCH_TERMS) {
+    try {
+      const url = `https://gnews.io/api/v4/search?q=${encodeURIComponent(q)}&lang=en&max=5&apikey=${gnewsKey}`
+      const r = await fetch(url, { signal: AbortSignal.timeout(10000) })
+      if (!r.ok) { console.log(`GNews HTTP ${r.status} for "${q}"`); continue }
+      const data = await r.json()
+      for (const a of data.articles ?? []) {
+        if (!seen.has(a.url)) {
+          seen.add(a.url)
+          articles.push({ title: a.title, url: a.url, domain: new URL(a.source?.url ?? a.url).hostname, seendate: a.publishedAt })
+        }
+      }
+    } catch (e) { console.log(`GNews error for "${q}":`, e.message) }
+  }
+  console.log(`GNews: ${articles.length} unique articles from ${GNEWS_SEARCH_TERMS.length} queries`)
+  return articles
+}
+
+async function gdeltFetchWithRetry(url, retries = 2) {
   for (let i = 0; i < retries; i++) {
     if (i > 0) await sleep(6000)
-    const r = await fetch(url, { signal: AbortSignal.timeout(20000), headers: GDELT_HEADERS })
+    const r = await fetch(url, { signal: AbortSignal.timeout(15000), headers: GDELT_HEADERS })
     if (r.ok) {
       const text = await r.text()
       if (text.includes('limit requests')) {
-        console.log(`GDELT rate-limited in body (attempt ${i + 1}/${retries}), waiting...`)
+        console.log(`GDELT rate-limited (attempt ${i + 1}/${retries})`)
         continue
       }
       try { return JSON.parse(text) } catch { console.log('GDELT non-JSON response'); continue }
-    }
-    const body = await r.text().catch(() => '')
-    if (body.includes('limit requests')) {
-      console.log(`GDELT rate-limited (attempt ${i + 1}/${retries}), waiting...`)
-      continue
     }
     console.log(`GDELT HTTP ${r.status} (attempt ${i + 1}/${retries})`)
   }
   return null
 }
 
-async function fetchGdeltHeadlines() {
-  const results = { articles: [], volume: [], fetchedAt: new Date().toISOString() }
+async function fetchGdeltFallback() {
+  const articles = []
   const seen = new Set()
   for (let b = 0; b < GDELT_QUERY_BATCHES.length; b++) {
     if (b > 0) await sleep(5500)
@@ -616,14 +642,39 @@ async function fetchGdeltHeadlines() {
       const data = await gdeltFetchWithRetry(url, 2)
       if (data?.articles) {
         for (const a of data.articles) {
-          if (!seen.has(a.url)) { seen.add(a.url); results.articles.push(a) }
+          if (!seen.has(a.url)) { seen.add(a.url); articles.push(a) }
         }
       }
-      console.log(`GDELT batch ${b + 1}/${GDELT_QUERY_BATCHES.length}: ${data?.articles?.length ?? 0} articles`)
     } catch (e) { console.log(`GDELT batch ${b + 1} error:`, e.message) }
   }
+  console.log(`GDELT fallback: ${articles.length} articles`)
+  return articles
+}
+
+async function fetchHeadlines() {
+  const results = { articles: [], volume: [], fetchedAt: new Date().toISOString(), source: 'none' }
+  const gnewsKey = process.env.GNEWS_KEY
+  if (gnewsKey) {
+    try {
+      const gnewsArticles = await fetchGnewsHeadlines(gnewsKey)
+      if (gnewsArticles.length >= 5) {
+        results.articles = gnewsArticles.slice(0, 50)
+        results.source = 'gnews'
+        return results
+      }
+      console.log(`GNews returned only ${gnewsArticles.length} articles, falling back to GDELT`)
+      results.articles = gnewsArticles
+    } catch (e) { console.log('GNews failed, falling back to GDELT:', e.message) }
+  }
+  try {
+    const gdeltArticles = await fetchGdeltFallback()
+    const seen = new Set(results.articles.map(a => a.url))
+    for (const a of gdeltArticles) {
+      if (!seen.has(a.url)) { seen.add(a.url); results.articles.push(a) }
+    }
+    results.source = results.source === 'none' ? 'gdelt' : 'gnews+gdelt'
+  } catch (e) { console.log('GDELT fallback failed:', e.message) }
   results.articles = results.articles.slice(0, 50)
-  console.log(`GDELT total: ${results.articles.length} unique articles`)
   return results
 }
 
@@ -819,7 +870,7 @@ export default async function handler(req, res) {
   try {
     const { signals, errors } = await gatherSignals()
     await sleep(3000)
-    const headlines = await fetchGdeltHeadlines()
+    const headlines = await fetchHeadlines()
     const material = computeMaterialState(signals)
     const marketPricing = extractMarketPricing(signals)
     const inputHash = JSON.stringify(material)
