@@ -34,7 +34,7 @@ Open **http://localhost:5173**. Vite proxies `/api/*` to port 3001 via `vite.con
 - **granville-market-dashboard** — PUBLIC. Shows Synthesis + Granville + Macro + Vol Surface.
 - **private-market-dashboard** — PRIVATE (Vercel Authentication enabled). Same + Alma panels via `VITE_SHOW_ALMA=true`.
 
-Env vars on BOTH (no VITE_ prefix — server-side only): `FINNHUB_KEY`, `FRED_KEY`, `ONEMIN_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `TRADIER_KEY`, `INGEST_SECRET`.
+Env vars on BOTH (no VITE_ prefix — server-side only): `FINNHUB_KEY`, `FRED_KEY`, `ONEMIN_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `TRADIER_KEY`, `INGEST_SECRET`, `GNEWS_KEY`.
 Private project ONLY: `VITE_SHOW_ALMA=true` (its absence hides Alma on public).
 
 Private project ONLY (in addition to `VITE_SHOW_ALMA`): `VITE_SHOW_GEO_REGIME=true` — enables the collapsible Geo Regime panel. Same on/off pattern as Alma.
@@ -436,17 +436,19 @@ violet pill-button switcher (same pattern as AlmaPanel sigma band selector).
    with Supabase reads on every GET. Shows implied probability grouped by
    theme. To adjust coverage: edit `POLYMARKET_SEARCH_TERMS` patterns or
    `POLYMARKET_EXCLUDE` in `api/aggregate-geo-regime.js`.
-5. **Headlines** (redesigned 2026-08-02) — server-side GDELT fetch (50
-   articles per cron run, all languages, broadened query covering chokepoints,
-   sanctions, tariffs, OPEC, pipelines, nuclear, NATO, Ukraine, Panama/Malacca,
-   coups, cyber, rare earth, semiconductors). LLM analysis groups headlines
-   into 5-8 themes with importance rating (high/medium/low), context sentence,
-   and convergence detection. Expandable per-group source lists. Stored in
-   `geo_regime_last_snapshot.headlines` jsonb (articles + volume + analysis).
-   Runs every 8h with the cron — no client-side GDELT fetch (eliminates
-   mobile timeout issues). Analysis LLM call runs in parallel with the main
-   geo assessment (no added wall-clock time). Skipped on gated-skip to
-   reduce token burn (2026-08-12).
+5. **Headlines** (redesigned 2026-08-02, updated 2026-08-17) — dual-source
+   headline fetching: **GNews.io as primary** (7 geo-focused search queries,
+   fast, reliable, free tier with 12h delay, 100 req/day), **GDELT as
+   fallback** (5 batched queries with 5.5s delays, fires only if GNews
+   returns <5 articles). Response tracks `source` field (`gnews`/`gdelt`/
+   `gnews+gdelt`). Env var: `GNEWS_KEY` (server-side, both Vercel projects).
+   GNews search terms: Hormuz/Red Sea/Houthis, Taiwan/SCS, sanctions/tariffs,
+   OPEC/oil/LNG, NATO/missiles/nuclear, cyber/infrastructure, semiconductors.
+   LLM analysis groups headlines into 5-8 themes with importance rating
+   (high/medium/low), context sentence, and convergence detection. Expandable
+   per-group source lists, capped at 5 visible badges with "+N more" overflow.
+   Stored in `geo_regime_last_snapshot.headlines` jsonb. Runs every 8h with
+   the cron. Skipped on gated-skip to reduce token burn (2026-08-12).
 
 **Diagnostics tab** (pipeline debugging — all former default-view content):
 1. **Regime Summary** — severity tiles (Oil Shock, Carry Unwind, Equity
@@ -467,16 +469,14 @@ to LLM output per call.
 recent assessed runs with full verdict (for reasoning timeline) in parallel.
 Returns `trajectory`, `reasoningTimeline` arrays alongside existing response.
 
-**GDELT fetch fix** (2026-08-09, updated 2026-08-12): GDELT rate-limits
-queries with many OR terms (the full 28-term query was consistently
-rejected). Fixed by splitting into 8 small batches of 3-4 terms each,
-queried sequentially with 6s delays between batches. Each batch fetches
-10 articles; results are deduplicated by URL and capped at 50 total.
-Volume timeline still uses the full query (single request, less strict).
-`gdeltFetchWithRetry()` retries 2x with 8s+4s*i backoff, sends
-User-Agent/Referer headers, handles 200-status rate-limit responses.
-Total GDELT fetch time ~50s (8 batches × 6s gaps), well within Vercel
-function timeout (480s).
+**Headline fetch** (2026-08-09, rewritten 2026-08-17): GNews.io primary
+with GDELT fallback. GNews runs 7 keyword searches (no rate-limit
+issues, ~2-3s total). GDELT fallback uses 5 batched queries with 5.5s
+inter-batch delays (~25s total). `gdeltFetchWithRetry()` retries 2x
+with 6s backoff, sends User-Agent/Referer headers, handles 200-status
+rate-limit responses. Previous approach of one large 28-term GDELT OR
+query was consistently rate-limited — GDELT treats multi-term queries
+as "larger queries" requiring special access.
 
 **API `handleReadOnly` change** (updated 2026-08-12): now also fetches
 Polymarket prices in parallel with Supabase reads. Returns `polymarket`
