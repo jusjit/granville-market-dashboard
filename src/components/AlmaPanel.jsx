@@ -102,121 +102,50 @@ export default function AlmaPanel({ data, loading, error }) {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
           <Level label="Upside Pivot" value={d.upside_pivot} accent="text-green-400" />
           <Level label="Downside Pivot" value={d.downside_pivot} accent="text-red-400" />
           <Level label="Upside Target" value={d.upside_target} accent="text-green-500/70" />
           <Level label="Downside Target" value={d.downside_target} accent="text-red-500/70" />
+        </div>
+
+        {/* Sigma bands */}
+        <div className="border-t border-slate-800/60 pt-4">
+          <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+            <p className="text-[10px] text-slate-600 uppercase tracking-widest">
+              Sigma Bands <span className="text-violet-400 font-bold text-xs normal-case">σ</span>
+            </p>
+            <div className="flex gap-1">
+              {SIGMA_SYMBOLS.map(sym => (
+                <button
+                  key={sym}
+                  onClick={() => setSigmaSymbol(sym)}
+                  className={`px-2 py-0.5 rounded text-[11px] font-semibold border transition-colors ${
+                    sigmaSymbol === sym
+                      ? 'text-violet-300 bg-violet-950/40 border-violet-800/60'
+                      : 'text-slate-500 bg-slate-900/40 border-slate-800 hover:text-slate-300'
+                  }`}
+                >
+                  {sym}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+            <SigmaCell n={1} side="upper" value={d[`${sigmaSymbol}_s1_upper`]} />
+            <SigmaCell n={1} side="lower" value={d[`${sigmaSymbol}_s1_lower`]} />
+            <SigmaCell n={2} side="upper" value={d[`${sigmaSymbol}_s2_upper`]} />
+            <SigmaCell n={2} side="lower" value={d[`${sigmaSymbol}_s2_lower`]} />
+            <SigmaCell n={3} side="upper" value={d[`${sigmaSymbol}_s3_upper`]} />
+            <SigmaCell n={3} side="lower" value={d[`${sigmaSymbol}_s3_lower`]} />
+          </div>
         </div>
       </div>
 
       {/* ── Live SPX reference — the actual inputs rules are evaluated against */}
       <AlmaLiveCard live={data.live} loading={false} error={null} />
 
-      {/* ── Active rules — ordered strongest evidence first (rank), directly
-             underneath the live data they're evaluated against ─────────── */}
-      {data.activeRules?.length > 0 && (
-        <div>
-          <div className="flex items-baseline gap-3 mb-2 flex-wrap">
-            <p className="text-[10px] text-slate-600 uppercase tracking-widest">
-              Active Rules ({data.activeRules.length})
-            </p>
-            <p className="text-[10px] text-slate-600">
-              Strongest evidence first · <span className="text-green-500">Signal</span> = placement carries
-              information; Context = reliable stat explained by proximity, not an edge
-            </p>
-          </div>
-          <div className="space-y-3">
-            {data.activeRules.map(rule => {
-              const signal = rule.actionable_as_signal
-              const s = rule.stats ?? {}
-              return (
-                <div
-                  key={rule.id}
-                  className={`rounded-lg border p-3 flex flex-col gap-2 ${
-                    signal
-                      ? 'border-green-900/40 bg-green-950/10'
-                      : 'border-slate-800 bg-slate-900/50'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-mono text-[10px] text-slate-600">#{rule.rank}</span>
-                        <p className="text-xs font-semibold text-slate-200">{rule.name}</p>
-                        <span className="text-[10px] text-slate-600 uppercase">{rule.horizon}</span>
-                      </div>
-                      <p className="text-xs text-slate-400 leading-snug mt-1">{rule.finding}</p>
-                    </div>
-                    <div className="flex flex-col items-end gap-1 shrink-0">
-                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border ${signal ? SIGNAL_BADGE : CONTEXT_BADGE}`}>
-                        {signal ? 'Signal' : 'Context'}
-                      </span>
-                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border ${TIER_COLORS[rule.reliability_tier] ?? TIER_COLORS.EXPLORATORY}`}>
-                        {rule.reliability_tier}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-3 flex-wrap">
-                    {s.estimate != null && (
-                      <span className="font-mono text-[11px] text-slate-400">
-                        {s.estimate}%{s.n != null ? ` · n=${s.n}` : ''}
-                      </span>
-                    )}
-                    <span className="text-[10px] text-slate-600">
-                      placebo {rule.placebo_status?.toLowerCase()}
-                    </span>
-                    {!signal && s.naive_benchmark && (
-                      <span className="text-[10px] text-slate-600 truncate" title={s.naive_benchmark}>
-                        vs naive: {s.naive_benchmark}
-                      </span>
-                    )}
-                  </div>
-
-                  {rule.interpretation && (
-                    <p className="text-[11px] text-slate-500 leading-relaxed">{rule.interpretation}</p>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* ── Sigma bands (tied to the daily centroid card above) ─────── */}
-      <div className="rounded-xl border border-violet-900/40 bg-violet-950/10 p-5">
-        <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
-          <p className="text-[10px] text-slate-600 uppercase tracking-widest">
-            Sigma Bands <span className="text-violet-400 font-bold text-xs normal-case">σ</span>
-          </p>
-          <div className="flex gap-1">
-            {SIGMA_SYMBOLS.map(sym => (
-              <button
-                key={sym}
-                onClick={() => setSigmaSymbol(sym)}
-                className={`px-2 py-0.5 rounded text-[11px] font-semibold border transition-colors ${
-                  sigmaSymbol === sym
-                    ? 'text-violet-300 bg-violet-950/40 border-violet-800/60'
-                    : 'text-slate-500 bg-slate-900/40 border-slate-800 hover:text-slate-300'
-                }`}
-              >
-                {sym}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
-          <SigmaCell n={1} side="upper" value={d[`${sigmaSymbol}_s1_upper`]} />
-          <SigmaCell n={1} side="lower" value={d[`${sigmaSymbol}_s1_lower`]} />
-          <SigmaCell n={2} side="upper" value={d[`${sigmaSymbol}_s2_upper`]} />
-          <SigmaCell n={2} side="lower" value={d[`${sigmaSymbol}_s2_lower`]} />
-          <SigmaCell n={3} side="upper" value={d[`${sigmaSymbol}_s3_upper`]} />
-          <SigmaCell n={3} side="lower" value={d[`${sigmaSymbol}_s3_lower`]} />
-        </div>
-      </div>
-
-      {/* ── Weekly levels card (distinct styling) ─────────── */}
+      {/* ── Weekly levels card ─────────── */}
       {w && (
         <div className="rounded-xl border border-sky-900/40 bg-sky-950/10 p-5">
           <div className="flex items-start justify-between gap-3 flex-wrap mb-4">
@@ -260,6 +189,78 @@ export default function AlmaPanel({ data, loading, error }) {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+export function AlmaActiveRules({ rules }) {
+  if (!rules?.length) return null
+  return (
+    <div>
+      <div className="flex items-baseline gap-3 mb-2 flex-wrap">
+        <p className="text-[10px] text-slate-600 uppercase tracking-widest">
+          Active Rules ({rules.length})
+        </p>
+        <p className="text-[10px] text-slate-600">
+          Strongest evidence first · <span className="text-green-500">Signal</span> = placement carries
+          information; Context = reliable stat explained by proximity, not an edge
+        </p>
+      </div>
+      <div className="space-y-3">
+        {rules.map(rule => {
+          const signal = rule.actionable_as_signal
+          const s = rule.stats ?? {}
+          return (
+            <div
+              key={rule.id}
+              className={`rounded-lg border p-3 flex flex-col gap-2 ${
+                signal
+                  ? 'border-green-900/40 bg-green-950/10'
+                  : 'border-slate-800 bg-slate-900/50'
+              }`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-mono text-[10px] text-slate-600">#{rule.rank}</span>
+                    <p className="text-xs font-semibold text-slate-200">{rule.name}</p>
+                    <span className="text-[10px] text-slate-600 uppercase">{rule.horizon}</span>
+                  </div>
+                  <p className="text-xs text-slate-400 leading-snug mt-1">{rule.finding}</p>
+                </div>
+                <div className="flex flex-col items-end gap-1 shrink-0">
+                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border ${signal ? SIGNAL_BADGE : CONTEXT_BADGE}`}>
+                    {signal ? 'Signal' : 'Context'}
+                  </span>
+                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border ${TIER_COLORS[rule.reliability_tier] ?? TIER_COLORS.EXPLORATORY}`}>
+                    {rule.reliability_tier}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 flex-wrap">
+                {s.estimate != null && (
+                  <span className="font-mono text-[11px] text-slate-400">
+                    {s.estimate}%{s.n != null ? ` · n=${s.n}` : ''}
+                  </span>
+                )}
+                <span className="text-[10px] text-slate-600">
+                  placebo {rule.placebo_status?.toLowerCase()}
+                </span>
+                {!signal && s.naive_benchmark && (
+                  <span className="text-[10px] text-slate-600 truncate" title={s.naive_benchmark}>
+                    vs naive: {s.naive_benchmark}
+                  </span>
+                )}
+              </div>
+
+              {rule.interpretation && (
+                <p className="text-[11px] text-slate-500 leading-relaxed">{rule.interpretation}</p>
+              )}
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }

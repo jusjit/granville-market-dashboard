@@ -3,7 +3,7 @@ import { fetchAllSignals, getMarketPhase } from './lib/signals'
 import { fetchAllMacroSignals } from './lib/macro'
 import { fetchSynthesis } from './lib/synthesis'
 import { fetchAlmaData } from './lib/alma'
-import AlmaPanel from './components/AlmaPanel'
+import AlmaPanel, { AlmaActiveRules } from './components/AlmaPanel'
 import AlmaLog from './components/AlmaLog'
 import VolSurfacePanel from './components/VolSurfacePanel'
 import { fetchVolSurface } from './lib/volsurface'
@@ -194,6 +194,9 @@ export default function App() {
 
         {/* Alma Signal Log — level touches, end-of-day */}
         {SHOW_ALMA && almaData && <AlmaLog data={almaData} />}
+
+        {/* Active Rules — below signal log */}
+        {SHOW_ALMA && almaData && <AlmaActiveRules rules={almaData.activeRules} />}
 
         {/* Section 2 — Vol Surface */}
         <section>
