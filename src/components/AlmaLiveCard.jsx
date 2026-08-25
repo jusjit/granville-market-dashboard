@@ -59,8 +59,9 @@ export default function AlmaLiveCard({ live, loading, error }) {
         </p>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
         <Stat label="SPX Last" value={spx.last?.toFixed(2) ?? '—'} />
+        <Stat label="SPX Prev Close" value={spx.prevclose?.toFixed(2) ?? '—'} />
         <Stat label="SPX Open" value={spx.open?.toFixed(2) ?? '—'} />
         <Stat label="Gap from Centroid" value={gap != null ? `${gap >= 0 ? '+' : ''}${gap.toFixed(2)}%` : '—'} accent={gapColor} />
         <Stat label="VIX Gap" value={vixGap != null ? `${vixGap >= 0 ? '+' : ''}${vixGap.toFixed(2)}%` : '—'} accent={vixGapColor} />

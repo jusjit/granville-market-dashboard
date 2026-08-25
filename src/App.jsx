@@ -182,14 +182,41 @@ export default function App() {
           </div>
         )}
 
-        {/* Section 1 — AI Synthesis */}
+        {/* Section 1 — Alma Centroid (private dashboard only) */}
+        {SHOW_ALMA && (
+          <section>
+            <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">
+              Alma Centroid
+            </h2>
+            <AlmaPanel data={almaData} loading={almaLoading} error={almaError} />
+          </section>
+        )}
+
+        {/* Alma Signal Log — level touches, end-of-day */}
+        {SHOW_ALMA && almaData && <AlmaLog data={almaData} />}
+
+        {/* Section 2 — Vol Surface */}
+        <section>
+          <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">
+            Vol Surface
+          </h2>
+          <VolSurfacePanel data={volData} loading={volLoading} error={volError} onRefresh={() => {
+            setVolLoading(true)
+            setVolError(null)
+            fetchVolSurface()
+              .then(d => { setVolData(d); setVolLoading(false) })
+              .catch(err => { setVolError(err.message); setVolLoading(false) })
+          }} />
+        </section>
+
+        {/* Section 3 — AI Synthesis */}
         <SynthesisPanel
           text={synthesis}
           loading={synthesisLoading}
           error={synthesisError}
         />
 
-        {/* Section 2 — Granville Composite */}
+        {/* Section 4 — Granville Composite */}
         <section>
           <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">
             Granville Composite
@@ -209,7 +236,7 @@ export default function App() {
           </div>
         </section>
 
-        {/* Section 3 — Granville Signal Cards */}
+        {/* Granville Signal Cards */}
         {signals.length > 0 && (
           <section>
             <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">
@@ -226,7 +253,7 @@ export default function App() {
         {/* Granville Signal Log — directly below the signal cards */}
         {signals.length > 0 && <SignalLog signals={signals} />}
 
-        {/* Section 4 — Macro Conditions */}
+        {/* Macro Conditions */}
         <section>
           <div className="flex items-center gap-3 mb-3">
             <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest">
@@ -271,20 +298,6 @@ export default function App() {
           <TreasuryAuctionPanel data={treasuryData} loading={treasuryLoading} error={treasuryError} />
         </section>
 
-        {/* Vol Surface — Tradier/ORATS SPX term structure */}
-        <section>
-          <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">
-            Vol Surface
-          </h2>
-          <VolSurfacePanel data={volData} loading={volLoading} error={volError} onRefresh={() => {
-            setVolLoading(true)
-            setVolError(null)
-            fetchVolSurface()
-              .then(d => { setVolData(d); setVolLoading(false) })
-              .catch(err => { setVolError(err.message); setVolLoading(false) })
-          }} />
-        </section>
-
         {/* Reference Data — VIX Futures + CME FedWatch (collapsible) */}
         <ReferenceDataPanel data={referenceData} loading={referenceLoading} error={referenceError} />
 
@@ -292,19 +305,6 @@ export default function App() {
         {SHOW_GEO && (
           <GeoRegimePanel data={geoData} loading={geoLoading} error={geoError} />
         )}
-
-        {/* Section 5 — Alma Centroid (private dashboard only) */}
-        {SHOW_ALMA && (
-          <section>
-            <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">
-              Alma Centroid
-            </h2>
-            <AlmaPanel data={almaData} loading={almaLoading} error={almaError} />
-          </section>
-        )}
-
-        {/* Alma Signal Log — level touches, end-of-day */}
-        {SHOW_ALMA && almaData && <AlmaLog data={almaData} />}
 
         <p className="text-xs text-slate-600 text-center pb-4">
           Cross-validate at stockcharts.com · finviz.com · Data: Finnhub + FRED · Based on Granville's 1960 timing system

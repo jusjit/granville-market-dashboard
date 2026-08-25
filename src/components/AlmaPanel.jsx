@@ -74,6 +74,42 @@ export default function AlmaPanel({ data, loading, error }) {
 
   return (
     <div className="space-y-4">
+      {/* ── Daily levels card (centroid first) ─────────────────────────────── */}
+      <div className="rounded-xl border border-violet-900/40 bg-violet-950/10 p-5">
+        <div className="flex items-start justify-between gap-3 flex-wrap mb-4">
+          <div>
+            <p className="text-[10px] font-semibold text-violet-500 uppercase tracking-widest">
+              Daily · SPX · {d.date} · updates every trading day
+            </p>
+            <div className="flex items-baseline gap-3 mt-1">
+              <span className="font-mono text-3xl font-bold text-slate-100">
+                {d.centroid != null ? d.centroid.toFixed(2) : '—'}
+              </span>
+              <span className="text-xs text-slate-500">daily centroid</span>
+            </div>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            {d.pattern_type && (
+              <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold border text-violet-300 bg-violet-950/30 border-violet-900/40">
+                {d.pattern_type}
+              </span>
+            )}
+            {d.directional_bias && (
+              <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border border-slate-700/50 bg-slate-900/50 ${biasColor}`}>
+                {d.directional_bias}
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <Level label="Upside Pivot" value={d.upside_pivot} accent="text-green-400" />
+          <Level label="Downside Pivot" value={d.downside_pivot} accent="text-red-400" />
+          <Level label="Upside Target" value={d.upside_target} accent="text-green-500/70" />
+          <Level label="Downside Target" value={d.downside_target} accent="text-red-500/70" />
+        </div>
+      </div>
+
       {/* ── Live SPX reference — the actual inputs rules are evaluated against */}
       <AlmaLiveCard live={data.live} loading={false} error={null} />
 
@@ -148,71 +184,35 @@ export default function AlmaPanel({ data, loading, error }) {
         </div>
       )}
 
-      {/* ── Daily levels card ─────────────────────────────── */}
+      {/* ── Sigma bands (tied to the daily centroid card above) ─────── */}
       <div className="rounded-xl border border-violet-900/40 bg-violet-950/10 p-5">
-        <div className="flex items-start justify-between gap-3 flex-wrap mb-4">
-          <div>
-            <p className="text-[10px] font-semibold text-violet-500 uppercase tracking-widest">
-              Daily · SPX · {d.date} · updates every trading day
-            </p>
-            <div className="flex items-baseline gap-3 mt-1">
-              <span className="font-mono text-3xl font-bold text-slate-100">
-                {d.centroid != null ? d.centroid.toFixed(2) : '—'}
-              </span>
-              <span className="text-xs text-slate-500">daily centroid</span>
-            </div>
-          </div>
-          <div className="flex gap-2 flex-wrap">
-            {d.pattern_type && (
-              <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold border text-violet-300 bg-violet-950/30 border-violet-900/40">
-                {d.pattern_type}
-              </span>
-            )}
-            {d.directional_bias && (
-              <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border border-slate-700/50 bg-slate-900/50 ${biasColor}`}>
-                {d.directional_bias}
-              </span>
-            )}
+        <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+          <p className="text-[10px] text-slate-600 uppercase tracking-widest">
+            Sigma Bands <span className="text-violet-400 font-bold text-xs normal-case">σ</span>
+          </p>
+          <div className="flex gap-1">
+            {SIGMA_SYMBOLS.map(sym => (
+              <button
+                key={sym}
+                onClick={() => setSigmaSymbol(sym)}
+                className={`px-2 py-0.5 rounded text-[11px] font-semibold border transition-colors ${
+                  sigmaSymbol === sym
+                    ? 'text-violet-300 bg-violet-950/40 border-violet-800/60'
+                    : 'text-slate-500 bg-slate-900/40 border-slate-800 hover:text-slate-300'
+                }`}
+              >
+                {sym}
+              </button>
+            ))}
           </div>
         </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
-          <Level label="Upside Pivot" value={d.upside_pivot} accent="text-green-400" />
-          <Level label="Downside Pivot" value={d.downside_pivot} accent="text-red-400" />
-          <Level label="Upside Target" value={d.upside_target} accent="text-green-500/70" />
-          <Level label="Downside Target" value={d.downside_target} accent="text-red-500/70" />
-        </div>
-
-        {/* Sigma bands with symbol tabs */}
-        <div className="border-t border-slate-800/60 pt-4">
-          <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
-            <p className="text-[10px] text-slate-600 uppercase tracking-widest">
-              Sigma Bands <span className="text-violet-400 font-bold text-xs normal-case">σ</span>
-            </p>
-            <div className="flex gap-1">
-              {SIGMA_SYMBOLS.map(sym => (
-                <button
-                  key={sym}
-                  onClick={() => setSigmaSymbol(sym)}
-                  className={`px-2 py-0.5 rounded text-[11px] font-semibold border transition-colors ${
-                    sigmaSymbol === sym
-                      ? 'text-violet-300 bg-violet-950/40 border-violet-800/60'
-                      : 'text-slate-500 bg-slate-900/40 border-slate-800 hover:text-slate-300'
-                  }`}
-                >
-                  {sym}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
-            <SigmaCell n={1} side="upper" value={d[`${sigmaSymbol}_s1_upper`]} />
-            <SigmaCell n={1} side="lower" value={d[`${sigmaSymbol}_s1_lower`]} />
-            <SigmaCell n={2} side="upper" value={d[`${sigmaSymbol}_s2_upper`]} />
-            <SigmaCell n={2} side="lower" value={d[`${sigmaSymbol}_s2_lower`]} />
-            <SigmaCell n={3} side="upper" value={d[`${sigmaSymbol}_s3_upper`]} />
-            <SigmaCell n={3} side="lower" value={d[`${sigmaSymbol}_s3_lower`]} />
-          </div>
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+          <SigmaCell n={1} side="upper" value={d[`${sigmaSymbol}_s1_upper`]} />
+          <SigmaCell n={1} side="lower" value={d[`${sigmaSymbol}_s1_lower`]} />
+          <SigmaCell n={2} side="upper" value={d[`${sigmaSymbol}_s2_upper`]} />
+          <SigmaCell n={2} side="lower" value={d[`${sigmaSymbol}_s2_lower`]} />
+          <SigmaCell n={3} side="upper" value={d[`${sigmaSymbol}_s3_upper`]} />
+          <SigmaCell n={3} side="lower" value={d[`${sigmaSymbol}_s3_lower`]} />
         </div>
       </div>
 
