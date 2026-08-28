@@ -439,14 +439,16 @@ violet pill-button switcher (same pattern as AlmaPanel sigma band selector).
    recession, generic trade war) removed — were pulling irrelevant markets.
    `POLYMARKET_EXCLUDE` filters Russia/Putin/Ukraine. Returns top 15 by
    implied probability, deduped. Fetched live in parallel with Supabase.
-5. **Headlines** (redesigned 2026-08-02, updated 2026-08-17) — dual-source
+5. **Headlines** (redesigned 2026-08-02, updated 2026-08-28) — dual-source
    headline fetching: **GNews.io as primary** (7 geo-focused search queries,
-   fast, reliable, free tier with 12h delay, 100 req/day), **GDELT as
-   fallback** (5 batched queries with 5.5s delays, fires only if GNews
-   returns <5 articles). Response tracks `source` field (`gnews`/`gdelt`/
-   `gnews+gdelt`). Env var: `GNEWS_KEY` (server-side, both Vercel projects).
-   GNews search terms: Hormuz/Red Sea/Houthis, Taiwan/SCS, sanctions/tariffs,
-   OPEC/oil/LNG, NATO/missiles/nuclear, cyber/infrastructure, semiconductors.
+   10 articles each, 1.5s delays between queries to avoid rate limiting from
+   Vercel IPs, free tier with 12h delay, 100 req/day), **GDELT as fallback**
+   (5 batched queries with 5.5s delays, fires only if GNews returns <5
+   articles). Response tracks `source` field (`gnews`/`gdelt`/`gnews+gdelt`).
+   Per-query logging for diagnosing which queries succeed on cron runs.
+   Env var: `GNEWS_KEY` (server-side, both Vercel projects). GNews search
+   terms: Hormuz/Red Sea/Houthis, Taiwan/SCS, sanctions/tariffs, OPEC/oil/
+   LNG, NATO/missiles/nuclear, cyber/infrastructure, semiconductors.
    LLM analysis groups headlines into 5-8 themes with importance rating
    (high/medium/low), context sentence, and convergence detection. Expandable
    per-group source lists, capped at 5 visible badges with "+N more" overflow.
