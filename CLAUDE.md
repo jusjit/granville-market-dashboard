@@ -410,32 +410,35 @@ violet pill-button switcher (same pattern as AlmaPanel sigma band selector).
    field: bold bottom_line sentence at top, then per-theme/region cards with
    situation detail and source convergence badges (using `Tip` tooltips).
    Graceful fallback ("Briefing unavailable") for pre-prompt-change runs.
-2. **Assessment History** (added 2026-08-02, redesigned 2026-08-09) — 7/14/30-day
-   confidence bar chart + reasoning timeline. Bar chart: one bar per assessed run,
-   color-coded by severity (red ≥80, amber ≥60, blue ≥40, grey below), red dots
-   mark flagged runs, clickable to show detail. Below: scrollable reasoning
-   timeline showing each assessment's confidence, risk category, LLM bottom line
-   (collapsed), and expandable reasoning text + key signal badges. API returns
-   `reasoningTimeline` (20 most recent non-skip runs with verdict excerpts).
-   `displaySource()` maps raw signal IDs to human-readable names (e.g.
-   `thermal:ru:65-0-110-5:...` → "Thermal anomaly (RU)").
+2. **Assessment History** (added 2026-08-02, redesigned 2026-08-09, updated
+   2026-08-17) — 7/14/30-day confidence bar chart + reasoning timeline. Bar
+   chart: one bar per assessed run, color-coded by severity (red ≥80, amber
+   ≥60, blue ≥40, grey below), red dots mark flagged runs, clickable. Each
+   assessment shows **confidence delta** vs previous run (green = decreasing
+   risk, red = increasing). Expanded view shows: bottom line, reasoning text,
+   **categories assessed**, **dismissed categories with reasons** (explains
+   why categories were NOT flagged — key for understanding score changes),
+   and key signal badges (capped at 8 with "+N more"). API `reasoningTimeline`
+   now includes `categories_considered` and `dismissed` (from
+   `categories_dismissed_reason`). `displaySource()` maps raw signal IDs to
+   human-readable names.
 3. **Market Pricing** (revised 2026-08-12) — geo-relevant commodities from
    FRED: WTI Crude (DCOILWTICO), Brent Crude (DCOILBRENTEU), Natural Gas
    Henry Hub (DHHNGSP), Gold London AM (GOLDAMGBD228NLBM), Copper monthly
    (PCOPPUSDM). Each tile labeled with its geo-theme relevance. Removed
    VIX/HY OAS/USD/JPY (redundant with main dashboard). Baltic Dry Index
    not available on FRED — would need external source.
-4. **Polymarket Layer** (added 2026-08-12) — dynamic search across Polymarket
-   events for geo-relevant prediction markets. Scans up to 600 events via
-   Gamma API (`gamma-api.polymarket.com/events`, no auth), matches questions
-   against 12 regex patterns in `POLYMARKET_SEARCH_TERMS` covering: Hormuz/
-   Iran, Israel/Hamas/Gaza, oil prices, Taiwan/China, recession, Iran nuclear,
-   gold, Suez/Red Sea/Houthis, BOJ, tariffs, semiconductors, natural gas.
-   `POLYMARKET_EXCLUDE` regex filters out Russia/Putin/Ukraine markets.
-   Returns top 15 by implied probability, deduped. Fetched live in parallel
-   with Supabase reads on every GET. Shows implied probability grouped by
-   theme. To adjust coverage: edit `POLYMARKET_SEARCH_TERMS` patterns or
-   `POLYMARKET_EXCLUDE` in `api/aggregate-geo-regime.js`.
+4. **Polymarket Layer** (added 2026-08-12, tightened 2026-08-17) — dynamic
+   search across Polymarket events. Scans up to 600 events via Gamma API
+   (`gamma-api.polymarket.com/events`, no auth), matches questions against
+   10 regex patterns in `POLYMARKET_SEARCH_TERMS` focused on **commodity
+   prices and war-escalation** only: Hormuz/Iran blockade, oil/crude prices,
+   natural gas/LNG, Taiwan invasion/SCS conflict, copper/semiconductor
+   shortage, China tariffs/embargo, Iran nuclear, gold prices, Suez/Red
+   Sea shipping, BOJ rates. Broad political matches (Israel/ceasefire/Gaza,
+   recession, generic trade war) removed — were pulling irrelevant markets.
+   `POLYMARKET_EXCLUDE` filters Russia/Putin/Ukraine. Returns top 15 by
+   implied probability, deduped. Fetched live in parallel with Supabase.
 5. **Headlines** (redesigned 2026-08-02, updated 2026-08-17) — dual-source
    headline fetching: **GNews.io as primary** (7 geo-focused search queries,
    fast, reliable, free tier with 12h delay, 100 req/day), **GDELT as
