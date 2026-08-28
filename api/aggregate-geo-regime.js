@@ -505,18 +505,16 @@ async function callOneMin(prompt, key, model = MODEL) {
 
 // ── Polymarket — dynamic search across geo-relevant prediction markets ────
 const POLYMARKET_SEARCH_TERMS = [
-  { query: /hormuz|iran.*block|persian.gulf|strait.*closure/i, theme: 'oil_energy' },
-  { query: /israel.*hamas|israel.*ceasefire|gaza|hezbollah/i, theme: 'oil_energy' },
-  { query: /oil.*price|crude.*price|opec.*cut|oil.*embargo|barrel/i, theme: 'oil_energy' },
-  { query: /taiwan|china.*invad|south.china.sea/i, theme: 'equity_drawdown' },
-  { query: /recession|market.*crash|bear.*market/i, theme: 'equity_drawdown' },
-  { query: /iran.*nuc|iran.*npt|iran.*coup/i, theme: 'safe_haven' },
+  { query: /hormuz|iran.*block|persian.gulf|strait.*clos/i, theme: 'oil_energy' },
+  { query: /oil.*price|crude.*price|opec.*cut|oil.*embargo|barrel.*\$/i, theme: 'oil_energy' },
+  { query: /natural.gas|lng.*price|henry.hub|energy.*crisis/i, theme: 'oil_energy' },
+  { query: /taiwan.*invad|china.*taiwan.*war|china.*invad|south.china.sea.*conflict/i, theme: 'equity_drawdown' },
+  { query: /copper.*price|semiconductor.*shortage|rare.earth.*ban/i, theme: 'equity_drawdown' },
+  { query: /tariff.*china|trade.war.*china|embargo.*china/i, theme: 'equity_drawdown' },
+  { query: /iran.*nuclear.*weapon|iran.*npt|iran.*enrich/i, theme: 'safe_haven' },
   { query: /gold.*price|gold.*\$|gold.*per.*oz|price.*gold/i, theme: 'safe_haven' },
-  { query: /suez|red.sea|houthi|shipping.*disrupt|freight/i, theme: 'freight_shock' },
-  { query: /boj|bank.of.japan|yen/i, theme: 'carry_unwind' },
-  { query: /tariff|trade.war|sanction.*china|embargo/i, theme: 'equity_drawdown' },
-  { query: /copper|semiconductor|tsmc|rare.earth/i, theme: 'equity_drawdown' },
-  { query: /natural.gas|lng|pipeline.*disrupt|energy.*crisis/i, theme: 'oil_energy' },
+  { query: /suez.*block|red.sea.*block|houthi.*ship|freight.*crisis/i, theme: 'freight_shock' },
+  { query: /boj.*rate|bank.of.japan.*rate|yen.*crisis/i, theme: 'carry_unwind' },
 ]
 const POLYMARKET_EXCLUDE = /russia|putin|ukraine|nato.*russia|kremlin|moscow|zelensky/i
 
@@ -843,6 +841,8 @@ async function handleReadOnly(req, res) {
       reasoning: r.verdict?.reasoning || r.verdict?.transmission_chain || null,
       relevant_signals: r.verdict?.relevant_signals || null,
       bottom_line: r.verdict?.briefing?.bottom_line || null,
+      categories_considered: r.verdict?.categories_considered || r.categories_considered || null,
+      dismissed: r.verdict?.categories_dismissed_reason || null,
     }))
     res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=120')
     return res.status(200).json({ runs, signals, regime: regime[0] ?? null, tierTracking: snapshot[0]?.tier_tracking ?? null, marketPricing: snapshot[0]?.market_pricing ?? null, headlines: snapshot[0]?.headlines ?? null, trajectory, reasoningTimeline, polymarket })

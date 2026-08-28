@@ -258,15 +258,22 @@ function ConfidenceBarChart({ runs, onSelectRun, selectedIdx }) {
   )
 }
 
-function ReasoningEntry({ entry }) {
+function ReasoningEntry({ entry, prevEntry }) {
   const [expanded, setExpanded] = useState(false)
   const color = confColor(entry.confidence ?? 0)
   const dateStr = new Date(entry.evaluated_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  const delta = prevEntry && entry.confidence != null && prevEntry.confidence != null
+    ? entry.confidence - prevEntry.confidence : null
 
   return (
     <div className={`border-l-2 pl-3 py-2 ${entry.flagged ? 'border-red-800/60' : 'border-slate-800/40'}`}>
       <div className="flex items-center gap-2 cursor-pointer" onClick={() => setExpanded(!expanded)}>
         <span className={`text-[9px] font-mono ${color.text}`}>{entry.confidence ?? '—'}</span>
+        {delta != null && delta !== 0 && (
+          <span className={`text-[9px] font-mono ${delta > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+            {delta > 0 ? `+${delta}` : delta}
+          </span>
+        )}
         <span className={`w-1.5 h-1.5 rounded-full ${entry.flagged ? 'bg-red-500' : 'bg-slate-600'}`} />
         <span className="text-[10px] text-slate-400 flex-1 truncate">
           {entry.risk_category || 'no flag'}
@@ -290,13 +297,36 @@ function ReasoningEntry({ entry }) {
               <p className="text-[10px] text-slate-400 leading-relaxed">{entry.reasoning}</p>
             </div>
           )}
+          {entry.categories_considered?.length > 0 && (
+            <div>
+              <p className="text-[9px] text-slate-600 uppercase tracking-wider mb-0.5">Categories assessed</p>
+              <div className="flex flex-wrap gap-1">
+                {entry.categories_considered.map((c, i) => (
+                  <span key={i} className="text-[9px] bg-slate-800/60 text-slate-400 px-1.5 py-0.5 rounded">{c}</span>
+                ))}
+              </div>
+            </div>
+          )}
+          {entry.dismissed && Object.keys(entry.dismissed).length > 0 && (
+            <div>
+              <p className="text-[9px] text-slate-600 uppercase tracking-wider mb-0.5">Dismissed (why not flagged)</p>
+              <div className="space-y-0.5">
+                {Object.entries(entry.dismissed).map(([cat, reason]) => (
+                  <p key={cat} className="text-[9px] text-slate-500"><span className="text-slate-400">{cat}:</span> {reason}</p>
+                ))}
+              </div>
+            </div>
+          )}
           {entry.relevant_signals?.length > 0 && (
             <div>
               <p className="text-[9px] text-slate-600 uppercase tracking-wider mb-0.5">Key signals</p>
               <div className="flex flex-wrap gap-1">
-                {entry.relevant_signals.map((s, i) => (
+                {entry.relevant_signals.slice(0, 8).map((s, i) => (
                   <span key={i} className="text-[9px] bg-slate-800/60 text-slate-400 px-1.5 py-0.5 rounded">{displaySource(s)}</span>
                 ))}
+                {entry.relevant_signals.length > 8 && (
+                  <span className="text-[9px] text-slate-600">+{entry.relevant_signals.length - 8} more</span>
+                )}
               </div>
             </div>
           )}
@@ -386,8 +416,8 @@ function TrajectoryLayer({ trajectory, reasoningTimeline }) {
       <div className="mt-3">
         <p className="text-[9px] font-semibold text-slate-500 uppercase tracking-wider mb-2">Recent Assessments</p>
         <div className="space-y-0.5 max-h-[300px] overflow-y-auto">
-          {windowReasoningRuns.slice(0, 10).map((entry, i) => (
-            <ReasoningEntry key={entry.evaluated_at + i} entry={entry} />
+          {windowReasoningRuns.slice(0, 10).map((entry, i, arr) => (
+            <ReasoningEntry key={entry.evaluated_at + i} entry={entry} prevEntry={arr[i + 1] ?? null} />
           ))}
           {windowReasoningRuns.length === 0 && (
             <p className="text-[9px] text-slate-600 italic">No assessed runs in this window.</p>
