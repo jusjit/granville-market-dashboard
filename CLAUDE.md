@@ -446,7 +446,11 @@ violet pill-button switcher (same pattern as AlmaPanel sigma band selector).
    (5 batched queries with 5.5s delays, fires only if GNews returns <5
    articles). Response tracks `source` field (`gnews`/`gdelt`/`gnews+gdelt`).
    Per-query logging for diagnosing which queries succeed on cron runs.
-   Env var: `GNEWS_KEY` (server-side, both Vercel projects). GNews search
+   **Title-similarity dedup** (2026-08-28): syndicated/wire articles appearing
+   on multiple outlets are deduplicated by normalized title match, substring
+   containment (>20 chars), and 70%+ word overlap — applied to both GNews
+   and GDELT fetchers. Env var: `GNEWS_KEY` (server-side, both Vercel
+   projects). GNews search
    terms: Hormuz/Red Sea/Houthis, Taiwan/SCS, sanctions/tariffs, OPEC/oil/
    LNG, NATO/missiles/nuclear, cyber/infrastructure, semiconductors.
    LLM analysis groups headlines into 5-8 themes with importance rating
