@@ -595,21 +595,24 @@ const GDELT_HEADERS = { 'User-Agent': 'GranvilleDashboard/1.0', 'Referer': 'http
 async function fetchGnewsHeadlines(gnewsKey) {
   const articles = []
   const seen = new Set()
-  for (const q of GNEWS_SEARCH_TERMS) {
+  for (let i = 0; i < GNEWS_SEARCH_TERMS.length; i++) {
+    if (i > 0) await sleep(1500)
+    const q = GNEWS_SEARCH_TERMS[i]
     try {
-      const url = `https://gnews.io/api/v4/search?q=${encodeURIComponent(q)}&lang=en&max=5&apikey=${gnewsKey}`
+      const url = `https://gnews.io/api/v4/search?q=${encodeURIComponent(q)}&lang=en&max=10&apikey=${gnewsKey}`
       const r = await fetch(url, { signal: AbortSignal.timeout(10000) })
       if (!r.ok) { console.log(`GNews HTTP ${r.status} for "${q}"`); continue }
       const data = await r.json()
-      for (const a of data.articles ?? []) {
+      const batch = data.articles ?? []
+      for (const a of batch) {
         if (!seen.has(a.url)) {
           seen.add(a.url)
           articles.push({ title: a.title, url: a.url, domain: new URL(a.source?.url ?? a.url).hostname, seendate: a.publishedAt })
         }
       }
-    } catch (e) { console.log(`GNews error for "${q}":`, e.message) }
+      console.log(`GNews [${i + 1}/${GNEWS_SEARCH_TERMS.length}] "${q.slice(0, 30)}": ${batch.length} fetched, ${articles.length} unique total`)
+    } catch (e) { console.log(`GNews [${i + 1}] error:`, e.message) }
   }
-  console.log(`GNews: ${articles.length} unique articles from ${GNEWS_SEARCH_TERMS.length} queries`)
   return articles
 }
 
