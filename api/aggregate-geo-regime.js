@@ -592,9 +592,25 @@ headline_indices are 0-based positions in the input array. Every headline must a
 
 const GDELT_HEADERS = { 'User-Agent': 'GranvilleDashboard/1.0', 'Referer': 'https://private-market-dashboard.vercel.app/' }
 
+function normalizeTitle(t) { return t.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim() }
+function titleTooSimilar(norm, existing) {
+  for (const e of existing) {
+    if (norm === e) return true
+    const short = norm.length < e.length ? norm : e
+    const long = norm.length < e.length ? e : norm
+    if (long.includes(short) && short.length > 20) return true
+    const words = new Set(norm.split(' '))
+    const eWords = e.split(' ')
+    const overlap = eWords.filter(w => words.has(w)).length
+    if (eWords.length > 3 && overlap / Math.max(eWords.length, norm.split(' ').length) > 0.7) return true
+  }
+  return false
+}
+
 async function fetchGnewsHeadlines(gnewsKey) {
   const articles = []
-  const seen = new Set()
+  const seenUrls = new Set()
+  const seenTitles = []
   for (let i = 0; i < GNEWS_SEARCH_TERMS.length; i++) {
     if (i > 0) await sleep(1500)
     const q = GNEWS_SEARCH_TERMS[i]
@@ -604,13 +620,17 @@ async function fetchGnewsHeadlines(gnewsKey) {
       if (!r.ok) { console.log(`GNews HTTP ${r.status} for "${q}"`); continue }
       const data = await r.json()
       const batch = data.articles ?? []
+      let added = 0
       for (const a of batch) {
-        if (!seen.has(a.url)) {
-          seen.add(a.url)
-          articles.push({ title: a.title, url: a.url, domain: new URL(a.source?.url ?? a.url).hostname, seendate: a.publishedAt })
-        }
+        if (seenUrls.has(a.url)) continue
+        const norm = normalizeTitle(a.title)
+        if (titleTooSimilar(norm, seenTitles)) continue
+        seenUrls.add(a.url)
+        seenTitles.push(norm)
+        articles.push({ title: a.title, url: a.url, domain: new URL(a.source?.url ?? a.url).hostname, seendate: a.publishedAt })
+        added++
       }
-      console.log(`GNews [${i + 1}/${GNEWS_SEARCH_TERMS.length}] "${q.slice(0, 30)}": ${batch.length} fetched, ${articles.length} unique total`)
+      console.log(`GNews [${i + 1}/${GNEWS_SEARCH_TERMS.length}] "${q.slice(0, 30)}": ${batch.length} fetched, ${added} kept, ${articles.length} unique total`)
     } catch (e) { console.log(`GNews [${i + 1}] error:`, e.message) }
   }
   return articles
@@ -635,7 +655,8 @@ async function gdeltFetchWithRetry(url, retries = 2) {
 
 async function fetchGdeltFallback() {
   const articles = []
-  const seen = new Set()
+  const seenUrls = new Set()
+  const seenTitles = []
   for (let b = 0; b < GDELT_QUERY_BATCHES.length; b++) {
     if (b > 0) await sleep(5500)
     const url = `https://api.gdeltproject.org/api/v2/doc/doc?query=${encodeURIComponent(GDELT_QUERY_BATCHES[b])}&mode=artlist&maxrecords=10&format=json&sort=datedesc`
@@ -643,7 +664,12 @@ async function fetchGdeltFallback() {
       const data = await gdeltFetchWithRetry(url, 2)
       if (data?.articles) {
         for (const a of data.articles) {
-          if (!seen.has(a.url)) { seen.add(a.url); articles.push(a) }
+          if (seenUrls.has(a.url)) continue
+          const norm = normalizeTitle(a.title)
+          if (titleTooSimilar(norm, seenTitles)) continue
+          seenUrls.add(a.url)
+          seenTitles.push(norm)
+          articles.push(a)
         }
       }
     } catch (e) { console.log(`GDELT batch ${b + 1} error:`, e.message) }
