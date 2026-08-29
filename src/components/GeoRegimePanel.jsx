@@ -517,12 +517,39 @@ function ConfidenceBarChart({ runs, onSelectRun, selectedIdx }) {
   )
 }
 
+function computeWhatChanged(entry, prevEntry) {
+  if (!prevEntry) return null
+  const curSignals = new Set((entry.relevant_signals ?? []).map(displaySource))
+  const prevSignals = new Set((prevEntry.relevant_signals ?? []).map(displaySource))
+  const added = [...curSignals].filter(s => !prevSignals.has(s))
+  const dropped = [...prevSignals].filter(s => !curSignals.has(s))
+  const catChange = (entry.risk_category || null) !== (prevEntry.risk_category || null)
+    ? { from: prevEntry.risk_category || 'no flag', to: entry.risk_category || 'no flag' }
+    : null
+  const flagChange = entry.flagged !== prevEntry.flagged
+    ? (entry.flagged ? 'newly flagged' : 'no longer flagged') : null
+  const triggers = entry.diff ?? null
+  if (!added.length && !dropped.length && !catChange && !flagChange && !triggers) return null
+  return { added, dropped, catChange, flagChange, triggers }
+}
+
 function ReasoningEntry({ entry, prevEntry }) {
   const [expanded, setExpanded] = useState(false)
   const color = confColor(entry.confidence ?? 0)
   const dateStr = new Date(entry.evaluated_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
   const delta = prevEntry && entry.confidence != null && prevEntry.confidence != null
     ? entry.confidence - prevEntry.confidence : null
+  const changed = computeWhatChanged(entry, prevEntry)
+
+  // one-line summary of the change for the collapsed view
+  const changeSummary = changed && (() => {
+    const parts = []
+    if (changed.flagChange) parts.push(changed.flagChange)
+    else if (changed.catChange) parts.push(`${changed.catChange.from} → ${changed.catChange.to}`)
+    if (changed.added.length) parts.push(`+${changed.added.length} signal${changed.added.length > 1 ? 's' : ''}`)
+    if (changed.dropped.length) parts.push(`−${changed.dropped.length} signal${changed.dropped.length > 1 ? 's' : ''}`)
+    return parts.join(' · ')
+  })()
 
   return (
     <div className={`border-l-2 pl-3 py-2 ${entry.flagged ? 'border-red-800/60' : 'border-slate-800/40'}`}>
@@ -541,12 +568,61 @@ function ReasoningEntry({ entry, prevEntry }) {
         <ChevronDown className={`w-3 h-3 text-slate-600 transition-transform ${expanded ? 'rotate-180' : ''}`} />
       </div>
 
-      {entry.bottom_line && !expanded && (
+      {!expanded && changeSummary && (
+        <p className="text-[9px] text-slate-500 mt-0.5 truncate">
+          <span className="text-slate-600">changed:</span> {changeSummary}
+        </p>
+      )}
+      {entry.bottom_line && !expanded && !changeSummary && (
         <p className="text-[10px] text-slate-500 mt-0.5 line-clamp-1">{entry.bottom_line}</p>
       )}
 
       {expanded && (
         <div className="mt-2 space-y-1.5">
+          {changed && (
+            <div className="rounded bg-slate-900/60 border border-slate-800/60 px-2 py-1.5">
+              <p className="text-[9px] text-slate-500 uppercase tracking-wider mb-1">What changed since prior assessment</p>
+              <div className="space-y-1">
+                {changed.flagChange && (
+                  <p className="text-[10px]"><span className={entry.flagged ? 'text-red-400' : 'text-emerald-400'}>● </span>
+                    <span className="text-slate-300">{changed.flagChange}</span></p>
+                )}
+                {changed.catChange && (
+                  <p className="text-[10px] text-slate-400">
+                    Risk category: <span className="text-slate-500">{changed.catChange.from}</span> → <span className="text-slate-200">{changed.catChange.to}</span>
+                  </p>
+                )}
+                {changed.triggers?.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1">
+                    <span className="text-[9px] text-slate-600">Inputs that moved:</span>
+                    {changed.triggers.map((t, i) => (
+                      <Tip key={i} term={t}>
+                        <span className="text-[9px] bg-amber-950/40 border border-amber-800/30 text-amber-300 px-1.5 py-0.5 rounded">{t}</span>
+                      </Tip>
+                    ))}
+                  </div>
+                )}
+                {changed.added.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1">
+                    <span className="text-[9px] text-emerald-600">New signals:</span>
+                    {changed.added.slice(0, 6).map((s, i) => (
+                      <span key={i} className="text-[9px] bg-emerald-950/30 border border-emerald-900/30 text-emerald-400 px-1.5 py-0.5 rounded">{s}</span>
+                    ))}
+                    {changed.added.length > 6 && <span className="text-[9px] text-slate-600">+{changed.added.length - 6}</span>}
+                  </div>
+                )}
+                {changed.dropped.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1">
+                    <span className="text-[9px] text-slate-600">Cleared signals:</span>
+                    {changed.dropped.slice(0, 6).map((s, i) => (
+                      <span key={i} className="text-[9px] bg-slate-800/40 border border-slate-700/30 text-slate-500 px-1.5 py-0.5 rounded line-through">{s}</span>
+                    ))}
+                    {changed.dropped.length > 6 && <span className="text-[9px] text-slate-600">+{changed.dropped.length - 6}</span>}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
           {entry.bottom_line && (
             <p className="text-[11px] text-slate-300 font-medium">{entry.bottom_line}</p>
           )}
@@ -665,9 +741,12 @@ function TrajectoryLayer({ trajectory, reasoningTimeline }) {
             <p className="text-[9px] text-slate-600 italic mt-0.5">Detailed reasoning not available for this run (outside the 20 most recent assessed runs).</p>
           </div>
         )
+        // prevEntry = the chronologically-prior assessed run (windowReasoningRuns is newest-first)
+        const matchIdx = windowReasoningRuns.findIndex(rr => rr.evaluated_at === match.evaluated_at)
+        const prev = matchIdx >= 0 ? windowReasoningRuns[matchIdx + 1] ?? null : null
         return (
           <div className="mt-2 p-2 rounded bg-slate-900/60 border border-slate-800/40">
-            <ReasoningEntry entry={match} />
+            <ReasoningEntry entry={match} prevEntry={prev} />
           </div>
         )
       })()}

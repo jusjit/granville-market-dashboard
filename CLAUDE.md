@@ -320,10 +320,12 @@ Three run modes, tagged via `geo_regime_runs.run_type`:
   was the "adjust if there's a better rule" default, kept as-is after review);
   every other category sent in full ONLY if it appears in the diff, otherwise a
   compact bucketed summary line. This is the routine `geo-regime-aggregator.yml`
-  cron (every 8h since 2026-08-12, was 4h).
-- **full-scan**: always the complete dataset regardless of diff. New
-  `geo-regime-full-scan.yml` cron, 2x/day (13:25/21:05 UTC weekdays, matches
-  `dashboard-snapshot.yml` cadence) — `?scan=full`. Preserves full
+  cron (every 12h since 2026-08-29; was 8h since 2026-08-12, originally 4h —
+  reduced to cut 1min.ai usage).
+- **full-scan**: always the complete dataset regardless of diff.
+  `geo-regime-full-scan.yml` cron, 1x/day (21:05 UTC weekdays = 5:05pm EDT
+  close; reduced from 2x/day on 2026-08-29 to cut 1min.ai usage — full-scan
+  always calls the LLM, so it's the biggest cost lever) — `?scan=full`. Preserves full
   `categories_considered`/`categories_dismissed_reason` coverage periodically
   even though routine runs now only re-examine what moved.
 - `?force=1` bypasses the gate but stays in gated-triggered (delta) mode — for
@@ -426,7 +428,16 @@ violet pill-button switcher (same pattern as AlmaPanel sigma band selector).
    chart: one bar per assessed run, color-coded by severity (red ≥80, amber
    ≥60, blue ≥40, grey below), red dots mark flagged runs, clickable. Each
    assessment shows **confidence delta** vs previous run (green = decreasing
-   risk, red = increasing). Expanded view shows: bottom line, reasoning text,
+   risk, red = increasing). **"What changed" diff (added 2026-08-29)**: beyond
+   the raw delta number, each entry computes a concrete comparison vs the prior
+   assessment — a one-line collapsed summary (`changed: <cat> → <cat> · +N
+   signals · −N signals`) and an expanded "What changed since prior assessment"
+   block showing flag change, risk-category transition, **inputs that moved**
+   (from the run's `diff` — which material categories crossed threshold), **new
+   signals** (green, appeared this run) and **cleared signals** (struck-through,
+   dropped since last run). `reasoningTimeline` now includes `diff` (category
+   keys). Signal sets compared via `displaySource`-normalized names.
+   Expanded view also shows: bottom line, reasoning text,
    **categories assessed**, **dismissed categories with reasons** (explains
    why categories were NOT flagged — key for understanding score changes),
    and key signal badges (capped at 8 with "+N more"). API `reasoningTimeline`
@@ -467,7 +478,7 @@ violet pill-button switcher (same pattern as AlmaPanel sigma band selector).
    LLM analysis groups headlines into 5-8 themes with importance rating
    (high/medium/low), context sentence, and convergence detection. Expandable
    per-group source lists, capped at 5 visible badges with "+N more" overflow.
-   Stored in `geo_regime_last_snapshot.headlines` jsonb. Runs every 8h with
+   Stored in `geo_regime_last_snapshot.headlines` jsonb. Runs every 12h with
    the cron. Skipped on gated-skip to reduce token burn (2026-08-12).
 
 **Diagnostics tab** (pipeline debugging — all former default-view content):
@@ -512,7 +523,7 @@ array in response.
   state, fetched on `refresh()`.
 
 **Related infrastructure** (unchanged):
-- Cron: `.github/workflows/geo-regime-aggregator.yml` — every 8h + workflow_dispatch
+- Cron: `.github/workflows/geo-regime-aggregator.yml` — every 12h + workflow_dispatch; `geo-regime-full-scan.yml` — 1x/day weekday close
 - Supabase schema: `../geo-monitor-scaffold/*.sql` (all applied)
 - worldmonitor clone: `../worldmonitor` (branch `geo-variant`)
 

@@ -8,7 +8,8 @@ on:
     # a COMPLETE dataset scan (all categories, not just what changed) so
     # categories_considered/categories_dismissed_reason keeps covering
     # everything the routine delta-mode runs skip when unchanged.
-    - cron: '25 13 * * 1-5'  # 9:25am EDT premarket (13:25 UTC)
+    # Reduced from 2x/day to 1x/day 2026-08-29 to cut 1min.ai usage (full-scan
+    # always calls the LLM). Kept the close run; premarket dropped.
     - cron: '5 21 * * 1-5'   # 5:05pm EDT close (21:05 UTC)
   workflow_dispatch:  # manual on-demand trigger
 

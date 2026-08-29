@@ -872,6 +872,7 @@ async function handleReadOnly(req, res) {
       bottom_line: r.verdict?.briefing?.bottom_line || null,
       categories_considered: r.verdict?.categories_considered || r.categories_considered || null,
       dismissed: r.verdict?.categories_dismissed_reason || null,
+      diff: r.diff && Object.keys(r.diff).length ? Object.keys(r.diff) : null,
     }))
     res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=120')
     return res.status(200).json({ runs, signals, regime: regime[0] ?? null, tierTracking: snapshot[0]?.tier_tracking ?? null, marketPricing: snapshot[0]?.market_pricing ?? null, headlines: snapshot[0]?.headlines ?? null, trajectory, reasoningTimeline, polymarket })
