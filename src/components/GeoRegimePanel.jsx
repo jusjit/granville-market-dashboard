@@ -163,24 +163,33 @@ function displaySource(raw) {
 /* ── Geo Map regions + chokepoints ── */
 
 const MAP_REGIONS = [
-  { id: 'middle_east', label: 'Middle East & Red Sea', cx: 560, cy: 195, match: /middle.east|gulf|iran|iraq|yemen|saudi|red.sea/i },
-  { id: 'eastern_europe', label: 'Eastern Europe', cx: 530, cy: 130, match: /eastern.europe|ukraine|russia|black.sea|crimea/i },
-  { id: 'asia_pacific', label: 'Asia Pacific', cx: 740, cy: 185, match: /asia.pacific|taiwan|china|south.china|indo.pacific|pacific/i },
-  { id: 'africa', label: 'Africa', cx: 500, cy: 260, match: /africa|sahel|nigeria|sudan|ethiopia/i },
-  { id: 'south_asia', label: 'South Asia', cx: 650, cy: 200, match: /south.asia|india|pakistan|bangladesh/i },
-  { id: 'americas', label: 'Americas', cx: 220, cy: 180, match: /america|us.canada|north.america|latin|caribbean|panama/i },
-  { id: 'europe_west', label: 'Western Europe', cx: 480, cy: 130, match: /western.europe|nato|europe(?!.*east)/i },
-  { id: 'global', label: 'Global Systemic', cx: 400, cy: 310, match: /global|systemic|worldwide|cyber/i },
+  { id: 'middle_east', label: 'Middle East', cx: 595, cy: 220, match: /middle.east|gulf|iran|iraq|yemen|saudi|red.sea|persian/i },
+  { id: 'eastern_europe', label: 'E. Europe', cx: 555, cy: 150, match: /eastern.europe|ukraine|russia|black.sea|crimea/i },
+  { id: 'asia_pacific', label: 'Asia Pacific', cx: 775, cy: 195, match: /asia.pacific|taiwan|china|south.china|indo.pacific|pacific/i },
+  { id: 'africa', label: 'Africa', cx: 520, cy: 310, match: /africa|sahel|nigeria|sudan|ethiopia/i },
+  { id: 'south_asia', label: 'South Asia', cx: 670, cy: 240, match: /south.asia|india|pakistan|bangladesh/i },
+  { id: 'americas', label: 'Americas', cx: 230, cy: 200, match: /america|us.canada|north.america|latin|caribbean|panama/i },
+  { id: 'europe_west', label: 'W. Europe', cx: 490, cy: 155, match: /western.europe|nato|europe(?!.*east)/i },
+  { id: 'global', label: 'Global', cx: 450, cy: 400, match: /global|systemic|worldwide|cyber/i },
 ]
 
 const CHOKEPOINTS = [
-  { id: 'hormuz', label: 'Strait of Hormuz', cx: 588, cy: 205, match: /hormuz/i },
-  { id: 'bab_el_mandeb', label: 'Bab el-Mandeb', cx: 555, cy: 230, match: /bab.el.mandeb|mandeb/i },
-  { id: 'suez', label: 'Suez Canal', cx: 535, cy: 190, match: /suez/i },
-  { id: 'taiwan_strait', label: 'Taiwan Strait', cx: 740, cy: 195, match: /taiwan.strait/i },
-  { id: 'malacca', label: 'Malacca Strait', cx: 700, cy: 240, match: /malacca/i },
-  { id: 'panama', label: 'Panama Canal', cx: 215, cy: 230, match: /panama/i },
-  { id: 'bosphorus', label: 'Bosphorus', cx: 535, cy: 155, match: /bosphor/i },
+  { id: 'hormuz', label: 'Hormuz', cx: 620, cy: 235, region: 'middle_east' },
+  { id: 'bab_el_mandeb', label: 'Bab el-Mandeb', cx: 580, cy: 275, region: 'middle_east' },
+  { id: 'suez', label: 'Suez', cx: 560, cy: 225, region: 'middle_east' },
+  { id: 'taiwan_strait', label: 'Taiwan Str.', cx: 775, cy: 215, region: 'asia_pacific' },
+  { id: 'malacca', label: 'Malacca', cx: 725, cy: 280, region: 'asia_pacific' },
+  { id: 'panama', label: 'Panama', cx: 235, cy: 265, region: 'americas' },
+  { id: 'bosphorus', label: 'Bosphorus', cx: 555, cy: 175, region: 'eastern_europe' },
+]
+
+const CONNECTION_LINES = [
+  { from: 'middle_east', to: 'eastern_europe' },
+  { from: 'middle_east', to: 'asia_pacific' },
+  { from: 'middle_east', to: 'europe_west' },
+  { from: 'eastern_europe', to: 'europe_west' },
+  { from: 'asia_pacific', to: 'americas' },
+  { from: 'middle_east', to: 'africa' },
 ]
 
 function matchThemeToRegion(theme) {
@@ -252,76 +261,121 @@ function WorldBriefing({ latestRun }) {
 
       {/* SVG World Map */}
       <div className="relative -mx-4 mb-3">
-        <svg viewBox="0 0 900 380" className="w-full" style={{ minHeight: 180 }}>
+        <svg viewBox="0 0 960 480" className="w-full" style={{ minHeight: 240 }}>
           <defs>
             <radialGradient id="glow-critical" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="#ef4444" stopOpacity="0.6" />
+              <stop offset="0%" stopColor="#ef4444" stopOpacity="0.7" />
               <stop offset="100%" stopColor="#ef4444" stopOpacity="0" />
             </radialGradient>
             <radialGradient id="glow-elevated" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.6" />
+              <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.7" />
               <stop offset="100%" stopColor="#f59e0b" stopOpacity="0" />
             </radialGradient>
             <radialGradient id="glow-watch" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="#6366f1" stopOpacity="0.6" />
+              <stop offset="0%" stopColor="#6366f1" stopOpacity="0.7" />
               <stop offset="100%" stopColor="#6366f1" stopOpacity="0" />
             </radialGradient>
-            <filter id="map-shadow">
-              <feDropShadow dx="0" dy="1" stdDeviation="2" floodColor="#6366f1" floodOpacity="0.15" />
+            <linearGradient id="line-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#6366f1" stopOpacity="0" />
+              <stop offset="50%" stopColor="#818cf8" stopOpacity="0.4" />
+              <stop offset="100%" stopColor="#6366f1" stopOpacity="0" />
+            </linearGradient>
+            <filter id="map-glow">
+              <feGaussianBlur stdDeviation="1.5" result="blur" />
+              <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
             </filter>
             <style>{`
-              @keyframes pulse-ring { 0% { r: 8; opacity: 0.6; } 100% { r: 20; opacity: 0; } }
-              .pulse-anim { animation: pulse-ring 2s ease-out infinite; }
+              @keyframes pulse-ring { 0% { r: 10; opacity: 0.7; } 100% { r: 28; opacity: 0; } }
+              .pulse-anim { animation: pulse-ring 2.5s ease-out infinite; }
+              @keyframes pulse-ring-sm { 0% { r: 5; opacity: 0.5; } 100% { r: 14; opacity: 0; } }
+              .pulse-sm { animation: pulse-ring-sm 3s ease-out infinite; }
             `}</style>
           </defs>
 
-          {/* Simplified continent paths */}
-          <g fill="#2a2060" stroke="#4338ca" strokeWidth="0.5" opacity="0.6" filter="url(#map-shadow)">
-            {/* North America */}
-            <path d="M80,60 L120,45 L160,40 L200,50 L240,60 L260,80 L270,120 L260,160 L240,180 L220,200 L210,220 L200,230 L180,220 L170,200 L150,180 L130,160 L110,140 L95,120 L85,100 Z" />
-            {/* Central America */}
-            <path d="M200,230 L210,240 L215,255 L210,265 L205,260 L195,250 L190,240 Z" />
+          {/* Refined continent paths */}
+          <g fill="#251d55" stroke="#4f46e5" strokeWidth="0.6" opacity="0.55">
+            {/* North America — Alaska, Canada, USA, Mexico */}
+            <path d="M60,65 L80,55 L105,50 L140,48 L165,55 L190,50 L220,55 L260,65 L285,80 L300,100 L310,130 L305,155 L290,175 L270,195 L255,210 L245,225 L235,235 L225,230 L218,220 L210,215 L200,220 L192,228 L185,225 L175,210 L155,190 L135,170 L115,155 L100,140 L88,120 L75,100 L65,85 Z" />
+            {/* Greenland */}
+            <path d="M310,30 L340,25 L370,30 L385,45 L380,65 L360,75 L335,72 L315,60 L305,45 Z" />
+            {/* Central America + Caribbean */}
+            <path d="M225,230 L235,240 L240,255 L238,268 L232,275 L225,268 L218,260 L215,248 L218,238 Z" />
             {/* South America */}
-            <path d="M210,265 L230,260 L260,270 L280,290 L290,320 L280,350 L260,365 L240,360 L220,340 L210,310 L215,290 L210,275 Z" />
-            {/* Europe */}
-            <path d="M440,60 L460,55 L480,60 L510,65 L540,70 L555,80 L550,100 L540,120 L520,130 L500,140 L480,145 L460,140 L445,130 L440,110 L435,90 Z" />
-            {/* UK/Ireland */}
-            <path d="M435,80 L445,75 L448,85 L442,95 L435,90 Z" />
-            {/* Africa */}
-            <path d="M460,180 L480,175 L510,180 L540,190 L560,210 L570,240 L565,270 L550,300 L530,320 L510,330 L490,325 L475,310 L465,290 L455,260 L450,230 L455,200 Z" />
-            {/* Russia/Central Asia */}
-            <path d="M555,45 L600,40 L650,42 L700,50 L750,55 L780,60 L790,70 L780,85 L760,95 L730,100 L700,105 L670,110 L640,115 L610,120 L580,115 L560,105 L555,85 L555,65 Z" />
-            {/* Middle East */}
-            <path d="M540,150 L570,145 L600,155 L610,170 L605,190 L590,200 L570,210 L555,205 L545,190 L535,170 Z" />
-            {/* India */}
-            <path d="M620,170 L650,165 L670,180 L675,200 L665,225 L645,240 L625,235 L615,215 L615,195 Z" />
-            {/* Southeast Asia */}
-            <path d="M680,190 L700,185 L720,190 L730,210 L720,230 L700,240 L685,235 L675,215 Z" />
-            {/* China/East Asia */}
-            <path d="M680,100 L710,95 L740,100 L760,115 L770,140 L760,165 L740,180 L720,185 L700,180 L685,165 L675,140 L675,120 Z" />
+            <path d="M238,275 L260,270 L285,278 L305,295 L315,320 L320,350 L310,385 L295,410 L275,425 L255,430 L240,420 L228,400 L222,375 L220,345 L225,320 L230,300 L235,285 Z" />
+            {/* UK + Ireland */}
+            <path d="M440,95 L452,88 L456,98 L452,112 L444,115 L438,108 Z" />
+            <path d="M432,100 L438,97 L440,105 L436,110 Z" />
+            {/* Scandinavia */}
+            <path d="M480,55 L495,45 L510,48 L518,58 L520,75 L515,90 L505,100 L490,95 L478,80 L475,68 Z" />
+            {/* Western + Central Europe */}
+            <path d="M445,115 L465,108 L490,110 L515,115 L540,120 L555,130 L555,150 L548,165 L530,170 L510,175 L490,178 L475,180 L460,175 L448,165 L440,150 L438,135 L440,122 Z" />
+            {/* Iberian Peninsula */}
+            <path d="M430,155 L445,148 L455,155 L458,170 L450,180 L435,182 L425,175 L425,165 Z" />
+            {/* Italy */}
+            <path d="M495,160 L500,165 L508,178 L512,195 L505,200 L498,192 L492,180 L490,170 Z" />
+            {/* Russia + Central Asia */}
+            <path d="M560,55 L600,48 L650,45 L700,50 L750,55 L800,60 L840,68 L850,80 L840,95 L815,105 L785,112 L750,118 L715,122 L680,128 L650,135 L625,140 L600,142 L575,138 L560,128 L555,110 L555,85 L558,70 Z" />
+            {/* Turkey + Middle East */}
+            <path d="M545,170 L570,168 L590,172 L610,180 L625,195 L630,215 L625,235 L610,245 L595,250 L575,248 L560,240 L550,225 L545,210 L540,195 L540,180 Z" />
+            {/* Arabian Peninsula */}
+            <path d="M580,240 L600,235 L620,240 L630,255 L625,272 L610,280 L590,278 L578,268 L575,255 Z" />
+            {/* North Africa */}
+            <path d="M430,200 L455,195 L480,198 L510,200 L540,205 L555,215 L550,230 L535,240 L510,248 L485,250 L460,248 L440,240 L430,225 L428,210 Z" />
+            {/* Sub-Saharan Africa */}
+            <path d="M460,250 L490,252 L515,255 L540,258 L560,268 L575,285 L580,310 L575,340 L565,370 L550,395 L530,410 L510,415 L490,408 L475,395 L465,375 L455,350 L450,325 L448,300 L450,275 Z" />
+            {/* India + Sri Lanka */}
+            <path d="M640,195 L665,188 L685,200 L695,220 L690,250 L678,275 L660,290 L645,285 L635,265 L630,245 L632,225 L635,210 Z" />
+            {/* Southeast Asia mainland */}
+            <path d="M700,195 L720,188 L740,195 L748,215 L742,240 L730,258 L715,265 L700,260 L692,245 L690,225 L695,210 Z" />
+            {/* China + Korea */}
+            <path d="M700,110 L730,105 L760,110 L785,125 L800,148 L798,175 L785,198 L765,210 L745,215 L725,210 L710,198 L700,180 L695,160 L695,140 L698,125 Z" />
             {/* Japan */}
-            <path d="M775,120 L782,115 L788,125 L785,140 L778,145 L772,135 Z" />
-            {/* Australia */}
-            <path d="M720,290 L760,280 L800,285 L820,300 L815,325 L790,340 L760,340 L735,330 L720,310 Z" />
+            <path d="M808,130 L818,122 L825,132 L823,150 L818,165 L810,172 L803,162 L802,145 Z" />
             {/* Indonesia */}
-            <path d="M690,250 L710,248 L730,252 L745,260 L735,268 L715,270 L695,265 Z" />
+            <path d="M710,280 L735,275 L760,278 L780,285 L795,295 L785,305 L765,308 L740,305 L720,298 L710,290 Z" />
+            {/* Philippines */}
+            <path d="M785,225 L792,218 L798,228 L795,242 L788,248 L782,240 Z" />
+            {/* Australia */}
+            <path d="M750,350 L790,338 L830,342 L860,358 L865,385 L850,410 L825,425 L795,428 L768,420 L750,400 L745,375 Z" />
+            {/* New Zealand */}
+            <path d="M880,415 L888,408 L892,420 L888,435 L882,438 L878,428 Z" />
           </g>
 
           {/* Grid lines */}
-          <g stroke="#4338ca" strokeWidth="0.15" opacity="0.3">
-            <line x1="0" y1="190" x2="900" y2="190" />
-            <line x1="450" y1="0" x2="450" y2="380" />
-            {[100, 200, 300, 400, 500, 600, 700, 800].map(x => <line key={`v${x}`} x1={x} y1="0" x2={x} y2="380" strokeDasharray="2 6" />)}
-            {[80, 160, 240, 320].map(y => <line key={`h${y}`} x1="0" y1={y} x2="900" y2={y} strokeDasharray="2 6" />)}
+          <g stroke="#4338ca" strokeWidth="0.2" opacity="0.2">
+            <line x1="0" y1="240" x2="960" y2="240" strokeDasharray="4 8" />
+            <line x1="480" y1="0" x2="480" y2="480" strokeDasharray="4 8" />
+            {[120, 240, 360, 480, 600, 720, 840].map(x => <line key={`v${x}`} x1={x} y1="0" x2={x} y2="480" strokeDasharray="1 10" />)}
+            {[96, 192, 288, 384].map(y => <line key={`h${y}`} x1="0" y1={y} x2="960" y2={y} strokeDasharray="1 10" />)}
           </g>
 
-          {/* Chokepoint markers (small diamonds) */}
+          {/* Connection lines between active regions */}
+          {CONNECTION_LINES.map(({ from, to }, i) => {
+            const fSev = regionSeverities[from]
+            const tSev = regionSeverities[to]
+            if (!fSev && !tSev) return null
+            const fR = MAP_REGIONS.find(r => r.id === from)
+            const tR = MAP_REGIONS.find(r => r.id === to)
+            if (!fR || !tR) return null
+            const mx = (fR.cx + tR.cx) / 2
+            const my = Math.min(fR.cy, tR.cy) - 25
+            return (
+              <path key={i} d={`M${fR.cx},${fR.cy} Q${mx},${my} ${tR.cx},${tR.cy}`}
+                fill="none" stroke="url(#line-grad)" strokeWidth="1.2" strokeDasharray="4 6" opacity="0.5" />
+            )
+          })}
+
+          {/* Chokepoint markers (diamonds with labels) */}
           {CHOKEPOINTS.map(cp => (
             <g key={cp.id}>
+              <circle cx={cp.cx} cy={cp.cy} r="4" fill="none" stroke="#818cf8" strokeWidth="0.8" className="pulse-sm" opacity="0.4" />
               <polygon
-                points={`${cp.cx},${cp.cy - 4} ${cp.cx + 3},${cp.cy} ${cp.cx},${cp.cy + 4} ${cp.cx - 3},${cp.cy}`}
-                fill="#818cf8" fillOpacity="0.7" stroke="#a5b4fc" strokeWidth="0.5"
+                points={`${cp.cx},${cp.cy - 6} ${cp.cx + 4.5},${cp.cy} ${cp.cx},${cp.cy + 6} ${cp.cx - 4.5},${cp.cy}`}
+                fill="#818cf8" fillOpacity="0.8" stroke="#a5b4fc" strokeWidth="0.8"
               />
+              <text x={cp.cx} y={cp.cy - 10} textAnchor="middle" fill="#a5b4fc" fontSize="8" fontFamily="system-ui" opacity="0.7">
+                {cp.label}
+              </text>
             </g>
           ))}
 
@@ -333,14 +387,10 @@ function WorldBriefing({ latestRun }) {
             const isSelected = selectedRegion === r.id
             return (
               <g key={r.id} onClick={() => setSelectedRegion(selectedRegion === r.id ? null : r.id)} style={{ cursor: 'pointer' }}>
-                {/* Pulse ring */}
-                <circle cx={r.cx} cy={r.cy} r="8" fill="none" stroke={colors.fill} strokeWidth="1.5" className="pulse-anim" opacity="0.5" />
-                {/* Glow */}
-                <circle cx={r.cx} cy={r.cy} r="16" fill={`url(#glow-${sev})`} />
-                {/* Core dot */}
-                <circle cx={r.cx} cy={r.cy} r={isSelected ? 7 : 5} fill={colors.fill} stroke={isSelected ? '#fff' : colors.glow} strokeWidth={isSelected ? 1.5 : 1} />
-                {/* Label */}
-                <text x={r.cx} y={r.cy - 12} textAnchor="middle" fill="#cbd5e1" fontSize="7" fontFamily="system-ui" opacity="0.8">
+                <circle cx={r.cx} cy={r.cy} r="10" fill="none" stroke={colors.fill} strokeWidth="2" className="pulse-anim" opacity="0.6" />
+                <circle cx={r.cx} cy={r.cy} r="22" fill={`url(#glow-${sev})`} />
+                <circle cx={r.cx} cy={r.cy} r={isSelected ? 9 : 7} fill={colors.fill} stroke={isSelected ? '#fff' : colors.glow} strokeWidth={isSelected ? 2 : 1.2} filter="url(#map-glow)" />
+                <text x={r.cx} y={r.cy - 16} textAnchor="middle" fill="#e2e8f0" fontSize="10" fontWeight="600" fontFamily="system-ui" opacity="0.9">
                   {r.label}
                 </text>
               </g>
@@ -349,11 +399,11 @@ function WorldBriefing({ latestRun }) {
         </svg>
 
         {/* Legend */}
-        <div className="flex items-center gap-3 px-4 mt-1">
-          <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500" /><span className="text-[8px] text-slate-500">Critical</span></div>
-          <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500" /><span className="text-[8px] text-slate-500">Elevated</span></div>
-          <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-indigo-500" /><span className="text-[8px] text-slate-500">Watch</span></div>
-          <div className="flex items-center gap-1"><span className="w-2 h-2 rotate-45 bg-indigo-400/70" style={{ width: 5, height: 5 }} /><span className="text-[8px] text-slate-500">Chokepoint</span></div>
+        <div className="flex items-center justify-center gap-4 px-4 mt-1">
+          <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-500" /><span className="text-[9px] text-slate-400">Critical</span></div>
+          <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-amber-500" /><span className="text-[9px] text-slate-400">Elevated</span></div>
+          <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-indigo-500" /><span className="text-[9px] text-slate-400">Watch</span></div>
+          <div className="flex items-center gap-1.5"><span className="w-2 h-2 rotate-45 bg-indigo-400" /><span className="text-[9px] text-slate-400">Chokepoint</span></div>
         </div>
       </div>
 
