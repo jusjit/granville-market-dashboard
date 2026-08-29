@@ -46,5 +46,5 @@ const out = `// Auto-generated world map path — equirectangular projection, vi
 export const WORLD_MAP_PATH = ${JSON.stringify(d)}
 `
 import { writeFileSync } from 'fs'
-writeFileSync('new URL("../src/lib/worldMapPath.js", import.meta.url)', out)
+writeFileSync(new URL('../src/lib/worldMapPath.js', import.meta.url), out)
 console.log('written')
