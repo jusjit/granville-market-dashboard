@@ -407,13 +407,13 @@ violet pill-button switcher (same pattern as AlmaPanel sigma band selector).
 
 **Main tab** (default — situational awareness):
 1. **World Briefing** (added 2026-08-02, geo map 2026-08-28) — Interactive SVG
-   world map as the face of the briefing. Features: detailed continent outlines,
-   8 region markers (Middle East, E. Europe, Asia Pacific, Africa, South Asia,
-   Americas, W. Europe, Global) with severity-colored pulsing dots (red=critical,
-   amber=elevated, indigo=watch), 7 chokepoint diamonds with labels (Hormuz,
-   Bab el-Mandeb, Malacca, Taiwan Strait, Suez, Panama, Bosphorus), curved
-   connection arcs between related active regions, click-to-select region detail.
-   ViewBox 960×480 for mobile readability. Below the map: Minto pyramid from LLM `briefing`
+   world map as the face of the briefing. Features: Natural Earth-style continent
+   outlines (30+ landmass paths including islands), 8 region markers with
+   severity-colored pulsing dots (red=critical, amber=elevated, indigo=watch),
+   7 chokepoint diamonds with labels, curved connection arcs between related
+   active regions. **Critical (red) regions auto-expand** their detail cards
+   below the map; elevated/watch regions are click-to-expand. ViewBox 960×480
+   for mobile readability. Below the map: Minto pyramid from LLM `briefing`
    field: bold bottom_line sentence at top, then per-theme/region cards with
    situation detail and source convergence badges (using `Tip` tooltips).
    Graceful fallback ("Briefing unavailable") for pre-prompt-change runs.

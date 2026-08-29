@@ -292,53 +292,75 @@ function WorldBriefing({ latestRun }) {
             `}</style>
           </defs>
 
-          {/* Refined continent paths */}
-          <g fill="#251d55" stroke="#4f46e5" strokeWidth="0.6" opacity="0.55">
-            {/* North America — Alaska, Canada, USA, Mexico */}
-            <path d="M60,65 L80,55 L105,50 L140,48 L165,55 L190,50 L220,55 L260,65 L285,80 L300,100 L310,130 L305,155 L290,175 L270,195 L255,210 L245,225 L235,235 L225,230 L218,220 L210,215 L200,220 L192,228 L185,225 L175,210 L155,190 L135,170 L115,155 L100,140 L88,120 L75,100 L65,85 Z" />
+          {/* Continent outlines — Natural Earth simplified */}
+          <g fill="#251d55" stroke="#4f46e5" strokeWidth="0.5" opacity="0.5">
+            {/* North America */}
+            <path d="M40,72 C50,58 68,48 90,42 C105,38 125,36 148,38 C162,40 172,36 185,32 C200,28 218,30 232,38 C240,42 248,48 258,52 C268,55 278,62 288,72 C295,80 300,90 305,102 C310,115 312,128 310,140 C308,148 305,158 298,168 C292,178 284,186 275,195 C268,202 260,210 252,218 C248,222 242,228 238,232 C235,234 232,238 228,238 C225,236 222,232 220,228 C218,224 215,220 212,218 C208,215 204,218 200,222 C196,226 192,230 188,228 C182,224 176,218 168,210 C158,198 146,186 135,175 C122,162 110,150 100,138 C92,128 85,118 78,106 C72,96 66,86 60,78 C55,72 48,68 42,72 Z" />
             {/* Greenland */}
-            <path d="M310,30 L340,25 L370,30 L385,45 L380,65 L360,75 L335,72 L315,60 L305,45 Z" />
-            {/* Central America + Caribbean */}
-            <path d="M225,230 L235,240 L240,255 L238,268 L232,275 L225,268 L218,260 L215,248 L218,238 Z" />
+            <path d="M310,22 C325,18 342,16 358,20 C370,24 380,32 386,44 C390,55 385,68 376,76 C368,82 356,84 344,82 C332,80 322,74 314,66 C308,58 304,48 304,38 C304,30 306,24 310,22 Z" />
+            {/* Central America */}
+            <path d="M228,238 C232,242 236,248 238,255 C240,262 240,268 238,272 C236,276 232,278 228,276 C224,274 220,268 218,262 C216,255 216,248 218,242 C220,238 224,236 228,238 Z" />
             {/* South America */}
-            <path d="M238,275 L260,270 L285,278 L305,295 L315,320 L320,350 L310,385 L295,410 L275,425 L255,430 L240,420 L228,400 L222,375 L220,345 L225,320 L230,300 L235,285 Z" />
-            {/* UK + Ireland */}
-            <path d="M440,95 L452,88 L456,98 L452,112 L444,115 L438,108 Z" />
-            <path d="M432,100 L438,97 L440,105 L436,110 Z" />
-            {/* Scandinavia */}
-            <path d="M480,55 L495,45 L510,48 L518,58 L520,75 L515,90 L505,100 L490,95 L478,80 L475,68 Z" />
+            <path d="M240,278 C248,274 258,272 268,272 C280,274 290,280 298,290 C306,300 312,314 316,330 C320,348 320,366 316,382 C312,396 305,408 295,418 C285,426 272,430 260,432 C248,432 238,428 230,420 C222,410 218,398 216,384 C214,368 214,352 216,336 C218,320 222,306 228,294 C232,286 236,280 240,278 Z" />
+            {/* UK */}
+            <path d="M440,88 C444,84 450,82 454,86 C458,90 458,98 456,106 C454,112 450,116 446,118 C442,118 438,114 436,108 C434,100 436,92 440,88 Z" />
+            {/* Ireland */}
+            <path d="M430,96 C434,92 438,94 438,100 C438,106 436,110 432,110 C428,108 428,100 430,96 Z" />
+            {/* Iceland */}
+            <path d="M404,62 C410,58 418,58 422,62 C426,66 426,72 422,76 C418,78 410,78 406,74 C402,70 402,64 404,62 Z" />
+            {/* Scandinavia + Finland */}
+            <path d="M478,52 C484,42 494,36 504,38 C512,40 518,46 522,56 C525,66 526,78 524,90 C522,100 516,108 508,112 C500,114 492,110 486,102 C480,92 476,80 474,68 C474,60 476,55 478,52 Z" />
             {/* Western + Central Europe */}
-            <path d="M445,115 L465,108 L490,110 L515,115 L540,120 L555,130 L555,150 L548,165 L530,170 L510,175 L490,178 L475,180 L460,175 L448,165 L440,150 L438,135 L440,122 Z" />
+            <path d="M442,118 C450,112 462,108 476,108 C490,108 504,112 518,118 C530,124 540,132 548,142 C554,152 556,162 554,170 C550,178 542,184 532,188 C520,192 506,192 492,190 C478,188 466,184 456,178 C448,172 442,164 438,154 C436,144 436,134 438,126 C440,122 440,120 442,118 Z" />
             {/* Iberian Peninsula */}
-            <path d="M430,155 L445,148 L455,155 L458,170 L450,180 L435,182 L425,175 L425,165 Z" />
-            {/* Italy */}
-            <path d="M495,160 L500,165 L508,178 L512,195 L505,200 L498,192 L492,180 L490,170 Z" />
+            <path d="M424,152 C432,146 442,144 450,148 C456,152 460,160 460,170 C458,178 454,186 446,190 C438,192 430,188 424,182 C420,176 418,168 418,160 C420,155 422,152 424,152 Z" />
+            {/* Italy + Sicily + Sardinia */}
+            <path d="M492,162 C496,158 500,160 504,166 C508,174 512,184 514,194 C515,202 514,208 510,210 C506,210 502,206 498,198 C494,190 492,180 490,172 C490,166 490,162 492,162 Z" />
+            <path d="M500,212 C504,208 510,210 510,216 C510,220 506,224 502,222 C498,220 498,214 500,212 Z" />
+            {/* Greece */}
+            <path d="M518,178 C522,174 528,176 530,182 C532,188 530,196 526,200 C522,202 518,198 516,192 C514,186 516,180 518,178 Z" />
             {/* Russia + Central Asia */}
-            <path d="M560,55 L600,48 L650,45 L700,50 L750,55 L800,60 L840,68 L850,80 L840,95 L815,105 L785,112 L750,118 L715,122 L680,128 L650,135 L625,140 L600,142 L575,138 L560,128 L555,110 L555,85 L558,70 Z" />
-            {/* Turkey + Middle East */}
-            <path d="M545,170 L570,168 L590,172 L610,180 L625,195 L630,215 L625,235 L610,245 L595,250 L575,248 L560,240 L550,225 L545,210 L540,195 L540,180 Z" />
+            <path d="M558,50 C580,42 608,38 638,38 C668,40 698,44 728,50 C755,56 778,62 798,68 C818,74 834,80 846,86 C852,92 852,100 846,106 C838,112 826,118 810,122 C792,126 772,130 750,132 C728,134 706,136 684,138 C664,140 644,142 626,144 C610,146 596,146 584,144 C572,142 564,136 558,128 C554,118 554,106 556,94 C558,82 558,68 558,56 Z" />
+            {/* Turkey */}
+            <path d="M536,168 C544,162 556,160 570,162 C582,164 592,170 598,178 C602,186 600,194 594,198 C586,202 576,202 566,200 C556,198 548,194 542,188 C538,182 536,176 536,170 Z" />
+            {/* Middle East — Iraq, Syria, Iran */}
+            <path d="M582,198 C594,192 608,190 622,194 C634,198 642,208 646,220 C648,232 644,244 636,252 C628,258 618,260 606,258 C594,256 584,250 576,240 C570,230 568,218 572,208 C574,202 578,198 582,198 Z" />
             {/* Arabian Peninsula */}
-            <path d="M580,240 L600,235 L620,240 L630,255 L625,272 L610,280 L590,278 L578,268 L575,255 Z" />
-            {/* North Africa */}
-            <path d="M430,200 L455,195 L480,198 L510,200 L540,205 L555,215 L550,230 L535,240 L510,248 L485,250 L460,248 L440,240 L430,225 L428,210 Z" />
+            <path d="M576,252 C586,246 598,244 612,248 C624,252 632,260 636,272 C638,282 634,292 626,298 C618,302 608,302 598,298 C588,294 580,286 576,276 C572,266 572,256 576,252 Z" />
+            {/* North Africa — Morocco to Egypt */}
+            <path d="M420,198 C438,192 462,190 488,192 C512,194 534,198 550,206 C558,212 560,220 556,228 C550,236 540,242 526,246 C510,250 492,252 474,252 C456,252 440,248 428,242 C420,236 416,228 416,218 C416,210 418,202 420,198 Z" />
             {/* Sub-Saharan Africa */}
-            <path d="M460,250 L490,252 L515,255 L540,258 L560,268 L575,285 L580,310 L575,340 L565,370 L550,395 L530,410 L510,415 L490,408 L475,395 L465,375 L455,350 L450,325 L448,300 L450,275 Z" />
-            {/* India + Sri Lanka */}
-            <path d="M640,195 L665,188 L685,200 L695,220 L690,250 L678,275 L660,290 L645,285 L635,265 L630,245 L632,225 L635,210 Z" />
+            <path d="M454,252 C472,250 492,250 512,254 C530,258 546,266 558,278 C568,290 574,306 576,324 C578,342 574,362 566,380 C558,396 546,408 532,416 C518,422 502,424 486,420 C472,416 460,406 452,394 C444,380 440,364 438,346 C436,328 438,310 442,294 C446,278 450,264 454,252 Z" />
+            {/* Madagascar */}
+            <path d="M572,362 C576,356 582,358 584,366 C586,374 584,384 580,390 C576,394 572,390 570,382 C568,374 570,366 572,362 Z" />
+            {/* India */}
+            <path d="M638,192 C650,186 664,184 678,190 C690,196 698,208 702,224 C704,240 700,258 692,274 C684,288 672,298 658,302 C646,304 636,298 630,288 C624,276 622,262 622,246 C622,230 626,216 632,204 C634,198 636,194 638,192 Z" />
+            {/* Sri Lanka */}
+            <path d="M666,304 C670,300 676,302 678,308 C678,314 676,320 672,322 C668,322 664,318 664,312 C664,308 664,304 666,304 Z" />
             {/* Southeast Asia mainland */}
-            <path d="M700,195 L720,188 L740,195 L748,215 L742,240 L730,258 L715,265 L700,260 L692,245 L690,225 L695,210 Z" />
-            {/* China + Korea */}
-            <path d="M700,110 L730,105 L760,110 L785,125 L800,148 L798,175 L785,198 L765,210 L745,215 L725,210 L710,198 L700,180 L695,160 L695,140 L698,125 Z" />
-            {/* Japan */}
-            <path d="M808,130 L818,122 L825,132 L823,150 L818,165 L810,172 L803,162 L802,145 Z" />
-            {/* Indonesia */}
-            <path d="M710,280 L735,275 L760,278 L780,285 L795,295 L785,305 L765,308 L740,305 L720,298 L710,290 Z" />
+            <path d="M698,188 C708,182 720,180 732,184 C742,188 750,198 754,212 C756,226 754,242 748,256 C742,268 732,276 720,278 C708,278 698,272 692,262 C686,250 684,236 686,222 C688,208 692,196 698,188 Z" />
+            {/* China + Mongolia */}
+            <path d="M698,102 C716,96 738,94 760,98 C780,102 798,112 810,126 C820,140 824,158 822,176 C818,192 808,206 794,214 C780,220 764,222 748,220 C732,218 718,210 708,200 C698,188 694,174 694,158 C694,142 694,126 696,112 C696,106 698,104 698,102 Z" />
+            {/* Korean Peninsula */}
+            <path d="M790,145 C794,140 800,142 802,148 C804,156 802,166 798,172 C794,176 790,172 788,166 C786,158 788,148 790,145 Z" />
+            {/* Japan — Honshu + Hokkaido */}
+            <path d="M810,118 C816,112 822,114 826,122 C830,132 830,144 828,156 C826,166 822,176 816,182 C810,186 806,182 804,174 C802,164 802,152 804,140 C806,130 808,122 810,118 Z" />
+            {/* Taiwan */}
+            <path d="M788,210 C792,206 796,208 796,214 C796,220 794,226 790,228 C786,228 784,224 784,218 C784,214 786,210 788,210 Z" />
             {/* Philippines */}
-            <path d="M785,225 L792,218 L798,228 L795,242 L788,248 L782,240 Z" />
+            <path d="M786,232 C790,226 796,228 798,236 C800,244 798,254 794,260 C790,264 786,260 784,252 C782,244 784,236 786,232 Z" />
+            {/* Indonesia — Sumatra, Java, Borneo, Sulawesi, Papua */}
+            <path d="M706,278 C718,274 732,272 748,274 C762,276 774,282 784,290 C792,298 796,306 794,312 C790,316 782,318 772,318 C760,316 748,312 736,308 C724,304 714,298 708,290 C704,284 704,280 706,278 Z" />
+            {/* Borneo */}
+            <path d="M752,260 C760,256 768,258 772,266 C774,274 772,282 766,286 C760,288 754,284 750,276 C748,268 748,262 752,260 Z" />
+            {/* Papua New Guinea */}
+            <path d="M808,300 C816,296 824,298 828,306 C830,314 828,322 822,326 C816,328 810,324 806,316 C804,308 804,302 808,300 Z" />
             {/* Australia */}
-            <path d="M750,350 L790,338 L830,342 L860,358 L865,385 L850,410 L825,425 L795,428 L768,420 L750,400 L745,375 Z" />
+            <path d="M748,342 C768,334 792,330 818,332 C840,334 858,342 868,356 C876,370 878,386 872,402 C866,416 854,426 838,432 C822,436 804,436 786,432 C770,428 756,420 746,408 C738,396 734,382 736,368 C738,354 742,346 748,342 Z" />
+            {/* Tasmania */}
+            <path d="M842,438 C848,434 854,436 856,442 C856,448 852,452 846,452 C840,450 838,444 842,438 Z" />
             {/* New Zealand */}
-            <path d="M880,415 L888,408 L892,420 L888,435 L882,438 L878,428 Z" />
+            <path d="M882,404 C888,398 894,400 896,408 C898,416 896,426 892,434 C888,440 882,440 880,434 C878,426 878,416 880,408 Z" />
           </g>
 
           {/* Grid lines */}
@@ -407,50 +429,104 @@ function WorldBriefing({ latestRun }) {
         </div>
       </div>
 
-      {/* Selected region detail */}
-      {selectedRegion && selectedThemes.length > 0 && (
-        <div className="rounded-lg border border-indigo-800/40 bg-indigo-950/30 px-3 py-2 mb-2">
-          <div className="flex items-center justify-between mb-1">
-            <p className="text-[11px] font-semibold text-indigo-300">{selectedLabel}</p>
-            <button onClick={() => setSelectedRegion(null)} className="text-[9px] text-slate-600 hover:text-slate-400">✕</button>
-          </div>
-          {selectedThemes.map((t, i) => (
-            <div key={i} className="mb-1.5 last:mb-0">
-              <p className="text-[11px] text-slate-300 leading-relaxed">{t.situation}</p>
-              {t.sources_confirmed?.length > 0 && (
-                <div className="flex flex-wrap items-center gap-1 mt-1">
-                  <span className="text-[8px] text-slate-600">Sources:</span>
-                  {t.sources_confirmed.slice(0, 4).map((s, j) => (
-                    <span key={j} className="px-1 py-0.5 rounded text-[8px] bg-slate-800/60 border border-slate-700/40 text-slate-500">{displaySource(s)}</span>
-                  ))}
-                  {t.sources_confirmed.length > 4 && <span className="text-[8px] text-slate-600">+{t.sources_confirmed.length - 4}</span>}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Non-selected themes (collapsed list) */}
-      {!selectedRegion && themes.length > 0 && (
-        <div className="space-y-1.5">
-          {themes.map((t, i) => {
-            const regionId = matchThemeToRegion(t)
-            const sev = regionSeverities[regionId]
-            const colors = sev ? SEV_COLORS[sev] : SEV_COLORS.watch
-            return (
-              <div key={i} className="flex items-start gap-2 cursor-pointer hover:bg-slate-800/20 rounded px-1 py-0.5 -mx-1"
-                onClick={() => setSelectedRegion(regionId)}>
-                <span className="w-1.5 h-1.5 rounded-full mt-1 flex-shrink-0" style={{ backgroundColor: colors.fill }} />
-                <div className="min-w-0">
-                  <span className="text-[10px] font-semibold text-slate-400">{t.region}</span>
-                  <p className="text-[10px] text-slate-500 line-clamp-1">{t.situation}</p>
-                </div>
+      {/* Critical regions — always visible */}
+      {(() => {
+        const criticalRegionIds = Object.entries(regionSeverities)
+          .filter(([, sev]) => sev === 'critical')
+          .map(([id]) => id)
+        const criticalThemes = criticalRegionIds.flatMap(rid =>
+          themes.filter(t => matchThemeToRegion(t) === rid).map(t => ({ ...t, _regionId: rid }))
+        )
+        if (criticalThemes.length === 0) return null
+        const grouped = {}
+        for (const t of criticalThemes) {
+          if (!grouped[t._regionId]) grouped[t._regionId] = []
+          grouped[t._regionId].push(t)
+        }
+        return Object.entries(grouped).map(([rid, rThemes]) => {
+          const label = MAP_REGIONS.find(r => r.id === rid)?.label
+          return (
+            <div key={rid} className="rounded-lg border border-red-900/40 bg-red-950/20 px-3 py-2 mb-2">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="w-2 h-2 rounded-full bg-red-500" />
+                <p className="text-[11px] font-semibold text-red-300">{label}</p>
+                <span className="text-[9px] text-red-400/60 uppercase tracking-wider">Critical</span>
               </div>
-            )
-          })}
-        </div>
-      )}
+              {rThemes.map((t, i) => (
+                <div key={i} className="mb-1.5 last:mb-0">
+                  <p className="text-[11px] text-slate-300 leading-relaxed">{t.situation}</p>
+                  {t.sources_confirmed?.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1 mt-1">
+                      <span className="text-[8px] text-slate-600">Sources:</span>
+                      {t.sources_confirmed.slice(0, 4).map((s, j) => (
+                        <span key={j} className="px-1 py-0.5 rounded text-[8px] bg-slate-800/60 border border-slate-700/40 text-slate-500">{displaySource(s)}</span>
+                      ))}
+                      {t.sources_confirmed.length > 4 && <span className="text-[8px] text-slate-600">+{t.sources_confirmed.length - 4}</span>}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )
+        })
+      })()}
+
+      {/* Selected non-critical region detail */}
+      {selectedRegion && regionSeverities[selectedRegion] !== 'critical' && (() => {
+        const selThemes = themes.filter(t => matchThemeToRegion(t) === selectedRegion)
+        if (selThemes.length === 0) return null
+        const borderColor = regionSeverities[selectedRegion] === 'elevated' ? 'border-amber-800/40 bg-amber-950/20' : 'border-indigo-800/40 bg-indigo-950/30'
+        return (
+          <div className={`rounded-lg border ${borderColor} px-3 py-2 mb-2`}>
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-[11px] font-semibold text-slate-300">{MAP_REGIONS.find(r => r.id === selectedRegion)?.label}</p>
+              <button onClick={() => setSelectedRegion(null)} className="text-[9px] text-slate-600 hover:text-slate-400">✕</button>
+            </div>
+            {selThemes.map((t, i) => (
+              <div key={i} className="mb-1.5 last:mb-0">
+                <p className="text-[11px] text-slate-300 leading-relaxed">{t.situation}</p>
+                {t.sources_confirmed?.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1 mt-1">
+                    <span className="text-[8px] text-slate-600">Sources:</span>
+                    {t.sources_confirmed.slice(0, 4).map((s, j) => (
+                      <span key={j} className="px-1 py-0.5 rounded text-[8px] bg-slate-800/60 border border-slate-700/40 text-slate-500">{displaySource(s)}</span>
+                    ))}
+                    {t.sources_confirmed.length > 4 && <span className="text-[8px] text-slate-600">+{t.sources_confirmed.length - 4}</span>}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )
+      })()}
+
+      {/* Non-critical themes list (clickable to expand) */}
+      {themes.length > 0 && (() => {
+        const nonCritical = themes.filter(t => {
+          const rid = matchThemeToRegion(t)
+          return regionSeverities[rid] !== 'critical' && rid !== selectedRegion
+        })
+        if (nonCritical.length === 0) return null
+        return (
+          <div className="space-y-1.5">
+            {nonCritical.map((t, i) => {
+              const regionId = matchThemeToRegion(t)
+              const sev = regionSeverities[regionId]
+              const colors = sev ? SEV_COLORS[sev] : SEV_COLORS.watch
+              return (
+                <div key={i} className="flex items-start gap-2 cursor-pointer hover:bg-slate-800/20 rounded px-1 py-0.5 -mx-1"
+                  onClick={() => setSelectedRegion(regionId)}>
+                  <span className="w-1.5 h-1.5 rounded-full mt-1 flex-shrink-0" style={{ backgroundColor: colors.fill }} />
+                  <div className="min-w-0">
+                    <span className="text-[10px] font-semibold text-slate-400">{t.region}</span>
+                    <p className="text-[10px] text-slate-500 line-clamp-1">{t.situation}</p>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )
+      })()}
 
       {latestRun && (
         <p className="text-[9px] text-slate-600 mt-2">
