@@ -160,9 +160,57 @@ function displaySource(raw) {
   return raw.replace(/_/g, ' ').replace(/-/g, ' ')
 }
 
-/* ── World Briefing (Minto pyramid: bottom line → theme detail) ── */
+/* ── Geo Map regions + chokepoints ── */
+
+const MAP_REGIONS = [
+  { id: 'middle_east', label: 'Middle East & Red Sea', cx: 560, cy: 195, match: /middle.east|gulf|iran|iraq|yemen|saudi|red.sea/i },
+  { id: 'eastern_europe', label: 'Eastern Europe', cx: 530, cy: 130, match: /eastern.europe|ukraine|russia|black.sea|crimea/i },
+  { id: 'asia_pacific', label: 'Asia Pacific', cx: 740, cy: 185, match: /asia.pacific|taiwan|china|south.china|indo.pacific|pacific/i },
+  { id: 'africa', label: 'Africa', cx: 500, cy: 260, match: /africa|sahel|nigeria|sudan|ethiopia/i },
+  { id: 'south_asia', label: 'South Asia', cx: 650, cy: 200, match: /south.asia|india|pakistan|bangladesh/i },
+  { id: 'americas', label: 'Americas', cx: 220, cy: 180, match: /america|us.canada|north.america|latin|caribbean|panama/i },
+  { id: 'europe_west', label: 'Western Europe', cx: 480, cy: 130, match: /western.europe|nato|europe(?!.*east)/i },
+  { id: 'global', label: 'Global Systemic', cx: 400, cy: 310, match: /global|systemic|worldwide|cyber/i },
+]
+
+const CHOKEPOINTS = [
+  { id: 'hormuz', label: 'Strait of Hormuz', cx: 588, cy: 205, match: /hormuz/i },
+  { id: 'bab_el_mandeb', label: 'Bab el-Mandeb', cx: 555, cy: 230, match: /bab.el.mandeb|mandeb/i },
+  { id: 'suez', label: 'Suez Canal', cx: 535, cy: 190, match: /suez/i },
+  { id: 'taiwan_strait', label: 'Taiwan Strait', cx: 740, cy: 195, match: /taiwan.strait/i },
+  { id: 'malacca', label: 'Malacca Strait', cx: 700, cy: 240, match: /malacca/i },
+  { id: 'panama', label: 'Panama Canal', cx: 215, cy: 230, match: /panama/i },
+  { id: 'bosphorus', label: 'Bosphorus', cx: 535, cy: 155, match: /bosphor/i },
+]
+
+function matchThemeToRegion(theme) {
+  const text = `${theme.region} ${theme.situation}`
+  for (const r of MAP_REGIONS) {
+    if (r.match.test(text)) return r.id
+  }
+  return 'global'
+}
+
+function getRegionSeverity(themes, regionId) {
+  const region = MAP_REGIONS.find(r => r.id === regionId)
+  if (!region) return null
+  const matched = themes.filter(t => matchThemeToRegion(t) === regionId)
+  if (matched.length === 0) return null
+  const hasCritical = matched.some(t => /critical|severe|acute|escalat/i.test(t.situation))
+  const hasElevated = matched.some(t => /elevated|heightened|tension|disrupt/i.test(t.situation))
+  if (hasCritical) return 'critical'
+  if (hasElevated) return 'elevated'
+  return 'watch'
+}
+
+const SEV_COLORS = {
+  critical: { fill: '#ef4444', glow: '#ef444480', pulse: '#ef444440', text: 'text-red-400' },
+  elevated: { fill: '#f59e0b', glow: '#f59e0b80', pulse: '#f59e0b40', text: 'text-amber-400' },
+  watch: { fill: '#6366f1', glow: '#6366f180', pulse: '#6366f140', text: 'text-indigo-400' },
+}
 
 function WorldBriefing({ latestRun }) {
+  const [selectedRegion, setSelectedRegion] = useState(null)
   const briefing = latestRun?.verdict?.briefing
   if (!briefing) {
     return (
@@ -173,35 +221,187 @@ function WorldBriefing({ latestRun }) {
     )
   }
 
+  const themes = briefing.themes ?? []
+  const regionSeverities = {}
+  for (const r of MAP_REGIONS) {
+    const sev = getRegionSeverity(themes, r.id)
+    if (sev) regionSeverities[r.id] = sev
+  }
+
+  const selectedThemes = selectedRegion
+    ? themes.filter(t => matchThemeToRegion(t) === selectedRegion)
+    : []
+  const selectedLabel = MAP_REGIONS.find(r => r.id === selectedRegion)?.label
+
+  const confidence = latestRun?.confidence ?? null
+
   return (
-    <div className="rounded-xl border border-indigo-900/30 bg-indigo-950/10 px-4 py-3">
-      <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2">World Briefing</p>
-      <p className="text-[13px] text-slate-200 font-semibold leading-snug mb-3">{briefing.bottom_line}</p>
-      {briefing.themes?.length > 0 && (
-        <div className="space-y-2">
-          {briefing.themes.map((t, i) => (
-            <div key={i} className="rounded-lg border border-slate-800/60 bg-slate-900/30 px-3 py-2">
-              <p className="text-[11px] font-semibold text-slate-300 mb-0.5">{t.region}</p>
-              <p className="text-[11px] text-slate-400 leading-relaxed">{t.situation}</p>
+    <div className="rounded-xl border border-indigo-900/30 bg-gradient-to-b from-[#1a1040] to-[#0f0d1a] px-4 py-3 overflow-hidden">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">World Briefing</p>
+        {confidence != null && (
+          <div className="flex items-center gap-1.5">
+            <span className="text-[9px] text-slate-600 uppercase">Threat</span>
+            <span className={`text-[11px] font-mono font-bold ${confidence >= 80 ? 'text-red-400' : confidence >= 60 ? 'text-amber-400' : confidence >= 40 ? 'text-indigo-400' : 'text-slate-500'}`}>
+              {confidence}
+            </span>
+          </div>
+        )}
+      </div>
+      <p className="text-[12px] text-slate-300 font-medium leading-snug mb-3">{briefing.bottom_line}</p>
+
+      {/* SVG World Map */}
+      <div className="relative -mx-4 mb-3">
+        <svg viewBox="0 0 900 380" className="w-full" style={{ minHeight: 180 }}>
+          <defs>
+            <radialGradient id="glow-critical" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor="#ef4444" stopOpacity="0.6" />
+              <stop offset="100%" stopColor="#ef4444" stopOpacity="0" />
+            </radialGradient>
+            <radialGradient id="glow-elevated" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.6" />
+              <stop offset="100%" stopColor="#f59e0b" stopOpacity="0" />
+            </radialGradient>
+            <radialGradient id="glow-watch" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor="#6366f1" stopOpacity="0.6" />
+              <stop offset="100%" stopColor="#6366f1" stopOpacity="0" />
+            </radialGradient>
+            <filter id="map-shadow">
+              <feDropShadow dx="0" dy="1" stdDeviation="2" floodColor="#6366f1" floodOpacity="0.15" />
+            </filter>
+            <style>{`
+              @keyframes pulse-ring { 0% { r: 8; opacity: 0.6; } 100% { r: 20; opacity: 0; } }
+              .pulse-anim { animation: pulse-ring 2s ease-out infinite; }
+            `}</style>
+          </defs>
+
+          {/* Simplified continent paths */}
+          <g fill="#2a2060" stroke="#4338ca" strokeWidth="0.5" opacity="0.6" filter="url(#map-shadow)">
+            {/* North America */}
+            <path d="M80,60 L120,45 L160,40 L200,50 L240,60 L260,80 L270,120 L260,160 L240,180 L220,200 L210,220 L200,230 L180,220 L170,200 L150,180 L130,160 L110,140 L95,120 L85,100 Z" />
+            {/* Central America */}
+            <path d="M200,230 L210,240 L215,255 L210,265 L205,260 L195,250 L190,240 Z" />
+            {/* South America */}
+            <path d="M210,265 L230,260 L260,270 L280,290 L290,320 L280,350 L260,365 L240,360 L220,340 L210,310 L215,290 L210,275 Z" />
+            {/* Europe */}
+            <path d="M440,60 L460,55 L480,60 L510,65 L540,70 L555,80 L550,100 L540,120 L520,130 L500,140 L480,145 L460,140 L445,130 L440,110 L435,90 Z" />
+            {/* UK/Ireland */}
+            <path d="M435,80 L445,75 L448,85 L442,95 L435,90 Z" />
+            {/* Africa */}
+            <path d="M460,180 L480,175 L510,180 L540,190 L560,210 L570,240 L565,270 L550,300 L530,320 L510,330 L490,325 L475,310 L465,290 L455,260 L450,230 L455,200 Z" />
+            {/* Russia/Central Asia */}
+            <path d="M555,45 L600,40 L650,42 L700,50 L750,55 L780,60 L790,70 L780,85 L760,95 L730,100 L700,105 L670,110 L640,115 L610,120 L580,115 L560,105 L555,85 L555,65 Z" />
+            {/* Middle East */}
+            <path d="M540,150 L570,145 L600,155 L610,170 L605,190 L590,200 L570,210 L555,205 L545,190 L535,170 Z" />
+            {/* India */}
+            <path d="M620,170 L650,165 L670,180 L675,200 L665,225 L645,240 L625,235 L615,215 L615,195 Z" />
+            {/* Southeast Asia */}
+            <path d="M680,190 L700,185 L720,190 L730,210 L720,230 L700,240 L685,235 L675,215 Z" />
+            {/* China/East Asia */}
+            <path d="M680,100 L710,95 L740,100 L760,115 L770,140 L760,165 L740,180 L720,185 L700,180 L685,165 L675,140 L675,120 Z" />
+            {/* Japan */}
+            <path d="M775,120 L782,115 L788,125 L785,140 L778,145 L772,135 Z" />
+            {/* Australia */}
+            <path d="M720,290 L760,280 L800,285 L820,300 L815,325 L790,340 L760,340 L735,330 L720,310 Z" />
+            {/* Indonesia */}
+            <path d="M690,250 L710,248 L730,252 L745,260 L735,268 L715,270 L695,265 Z" />
+          </g>
+
+          {/* Grid lines */}
+          <g stroke="#4338ca" strokeWidth="0.15" opacity="0.3">
+            <line x1="0" y1="190" x2="900" y2="190" />
+            <line x1="450" y1="0" x2="450" y2="380" />
+            {[100, 200, 300, 400, 500, 600, 700, 800].map(x => <line key={`v${x}`} x1={x} y1="0" x2={x} y2="380" strokeDasharray="2 6" />)}
+            {[80, 160, 240, 320].map(y => <line key={`h${y}`} x1="0" y1={y} x2="900" y2={y} strokeDasharray="2 6" />)}
+          </g>
+
+          {/* Chokepoint markers (small diamonds) */}
+          {CHOKEPOINTS.map(cp => (
+            <g key={cp.id}>
+              <polygon
+                points={`${cp.cx},${cp.cy - 4} ${cp.cx + 3},${cp.cy} ${cp.cx},${cp.cy + 4} ${cp.cx - 3},${cp.cy}`}
+                fill="#818cf8" fillOpacity="0.7" stroke="#a5b4fc" strokeWidth="0.5"
+              />
+            </g>
+          ))}
+
+          {/* Region hotspot markers */}
+          {MAP_REGIONS.map(r => {
+            const sev = regionSeverities[r.id]
+            if (!sev) return null
+            const colors = SEV_COLORS[sev]
+            const isSelected = selectedRegion === r.id
+            return (
+              <g key={r.id} onClick={() => setSelectedRegion(selectedRegion === r.id ? null : r.id)} style={{ cursor: 'pointer' }}>
+                {/* Pulse ring */}
+                <circle cx={r.cx} cy={r.cy} r="8" fill="none" stroke={colors.fill} strokeWidth="1.5" className="pulse-anim" opacity="0.5" />
+                {/* Glow */}
+                <circle cx={r.cx} cy={r.cy} r="16" fill={`url(#glow-${sev})`} />
+                {/* Core dot */}
+                <circle cx={r.cx} cy={r.cy} r={isSelected ? 7 : 5} fill={colors.fill} stroke={isSelected ? '#fff' : colors.glow} strokeWidth={isSelected ? 1.5 : 1} />
+                {/* Label */}
+                <text x={r.cx} y={r.cy - 12} textAnchor="middle" fill="#cbd5e1" fontSize="7" fontFamily="system-ui" opacity="0.8">
+                  {r.label}
+                </text>
+              </g>
+            )
+          })}
+        </svg>
+
+        {/* Legend */}
+        <div className="flex items-center gap-3 px-4 mt-1">
+          <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500" /><span className="text-[8px] text-slate-500">Critical</span></div>
+          <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500" /><span className="text-[8px] text-slate-500">Elevated</span></div>
+          <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-indigo-500" /><span className="text-[8px] text-slate-500">Watch</span></div>
+          <div className="flex items-center gap-1"><span className="w-2 h-2 rotate-45 bg-indigo-400/70" style={{ width: 5, height: 5 }} /><span className="text-[8px] text-slate-500">Chokepoint</span></div>
+        </div>
+      </div>
+
+      {/* Selected region detail */}
+      {selectedRegion && selectedThemes.length > 0 && (
+        <div className="rounded-lg border border-indigo-800/40 bg-indigo-950/30 px-3 py-2 mb-2">
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-[11px] font-semibold text-indigo-300">{selectedLabel}</p>
+            <button onClick={() => setSelectedRegion(null)} className="text-[9px] text-slate-600 hover:text-slate-400">✕</button>
+          </div>
+          {selectedThemes.map((t, i) => (
+            <div key={i} className="mb-1.5 last:mb-0">
+              <p className="text-[11px] text-slate-300 leading-relaxed">{t.situation}</p>
               {t.sources_confirmed?.length > 0 && (
-                <div className="flex flex-wrap items-center gap-1 mt-1.5">
-                  <span className="text-[9px] text-slate-600">Sources:</span>
-                  {t.sources_confirmed.slice(0, 5).map((s, j) => (
-                    <Tip key={j} term={s}>
-                      <span className="px-1 py-0.5 rounded text-[9px] bg-slate-800/60 border border-slate-700/40 text-slate-500 whitespace-nowrap">
-                        {displaySource(s)}
-                      </span>
-                    </Tip>
+                <div className="flex flex-wrap items-center gap-1 mt-1">
+                  <span className="text-[8px] text-slate-600">Sources:</span>
+                  {t.sources_confirmed.slice(0, 4).map((s, j) => (
+                    <span key={j} className="px-1 py-0.5 rounded text-[8px] bg-slate-800/60 border border-slate-700/40 text-slate-500">{displaySource(s)}</span>
                   ))}
-                  {t.sources_confirmed.length > 5 && (
-                    <span className="text-[9px] text-slate-600">+{t.sources_confirmed.length - 5} more</span>
-                  )}
+                  {t.sources_confirmed.length > 4 && <span className="text-[8px] text-slate-600">+{t.sources_confirmed.length - 4}</span>}
                 </div>
               )}
             </div>
           ))}
         </div>
       )}
+
+      {/* Non-selected themes (collapsed list) */}
+      {!selectedRegion && themes.length > 0 && (
+        <div className="space-y-1.5">
+          {themes.map((t, i) => {
+            const regionId = matchThemeToRegion(t)
+            const sev = regionSeverities[regionId]
+            const colors = sev ? SEV_COLORS[sev] : SEV_COLORS.watch
+            return (
+              <div key={i} className="flex items-start gap-2 cursor-pointer hover:bg-slate-800/20 rounded px-1 py-0.5 -mx-1"
+                onClick={() => setSelectedRegion(regionId)}>
+                <span className="w-1.5 h-1.5 rounded-full mt-1 flex-shrink-0" style={{ backgroundColor: colors.fill }} />
+                <div className="min-w-0">
+                  <span className="text-[10px] font-semibold text-slate-400">{t.region}</span>
+                  <p className="text-[10px] text-slate-500 line-clamp-1">{t.situation}</p>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
       {latestRun && (
         <p className="text-[9px] text-slate-600 mt-2">
           Based on {latestRun.run_type} · {fmtAgo(latestRun.evaluated_at)}
