@@ -407,8 +407,12 @@ violet pill-button switcher (same pattern as AlmaPanel sigma band selector).
 
 **Main tab** (default — situational awareness):
 1. **World Briefing** (added 2026-08-02, geo map 2026-08-28) — Interactive SVG
-   world map as the face of the briefing. Features: Natural Earth-style continent
-   outlines (30+ landmass paths including islands), 8 region markers with
+   world map as the face of the briefing. Continents rendered from **real geo
+   data**: `src/lib/worldMapPath.js` (auto-generated from world.geo.json /
+   Natural Earth via equirectangular projection, viewBox 960×480, lat range
+   [85,-60], Antarctica excluded, ~87KB path — regenerate with the genmap
+   script if needed: x=(lon+180)/360*960, y=(85-lat)/145*480). Marker coords
+   use the same projection. 8 region markers with
    severity-colored pulsing dots (red=critical, amber=elevated, indigo=watch),
    7 chokepoint diamonds with labels, curved connection arcs between related
    active regions. **Critical (red) regions auto-expand** their detail cards
