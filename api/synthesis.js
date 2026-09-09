@@ -134,14 +134,24 @@ function buildTreasuryPrompt(auctions) {
     const btc = a.bidToCover != null ? `${a.bidToCover.toFixed(2)}x bid/cover` : 'no bid/cover'
     const indirect = a.indirectPct != null ? `${a.indirectPct}% indirect` : ''
     const direct = a.directPct != null ? `${a.directPct}% direct` : ''
+    const dealer = a.dealerPct != null ? `${a.dealerPct}% dealer` : ''
     const size = a.offeringAmt != null ? `$${(a.offeringAmt / 1e9).toFixed(0)}B` : ''
     const yld = a.highYield != null ? `${a.highYield.toFixed(3)}%` : 'pending'
-    return `  ${a.auctionDate} ${a.securityTerm}: ${yld}, ${tail}, ${btc}, ${indirect}, ${direct} ${size}`
+    return `  ${a.auctionDate} ${a.securityTerm}: ${yld}, ${tail}, ${btc}, ${indirect}, ${direct}, ${dealer} ${size}`
   }).join('\n')
 
-  return `You are a fixed-income analyst writing a brief for a macro trader. Summarize these recent US Treasury auction results in 2-3 sentences. Focus on:
-1. Demand quality (bid-to-cover ratios, tails — positive tail = weak, negative = strong)
-2. Foreign demand trends (indirect bidders = foreign central banks + institutions)
+  return `You are a fixed-income analyst writing a brief for a macro trader. Summarize these recent US Treasury auction results in 2-3 sentences.
+
+INTERPRETATION FRAMEWORK — buyers matter more than the rating:
+- Japan sold Treasuries to fund yen intervention; Bessent is defending the yen. China is reducing holdings. Hedge funds buy the basis trade while repo holds. Domestic real money buys yield. Demand exists at a price — the tail tells you that price.
+- TAIL: if auction yield lands below pre-auction market yield, buyers paid up (good). 2bp+ above means Treasury had to discount (bad).
+- BID-TO-COVER: above 2.5x is healthy; below 2.45x is thin.
+- INDIRECT SHARE (foreign buyers): above 70% is strong; below 65% is weak.
+- DEALER SHARE (leftovers): under 10% is good; over 12% is bad (dealers absorbed what nobody else wanted).
+
+Focus on:
+1. Demand quality through the lens above — lead with the tail and who showed up
+2. Foreign demand trends (indirect = foreign CBs + institutions) and dealer absorption
 3. Any notable shifts vs prior auctions of the same tenor
 
 Be specific with numbers. If a very recent auction has no results yet (pending), note it's upcoming. Write in plain prose, no bullets, no headers. Be concise — a trader reads this in 5 seconds.
