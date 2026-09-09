@@ -524,9 +524,10 @@ const POLYMARKET_EXCLUDE = /russia|putin|ukraine|nato.*russia|kremlin|moscow|zel
 // near-zero strikes, so we filter to markets with meaningful probability and cap
 // per event.
 const POLYMARKET_ENERGY_TERMS = ['oil', 'crude oil', 'opec', 'natural gas', 'wti crude']
-const ENERGY_MIN_PROB = 0.03      // drop deep-OTM ladder strikes
-const ENERGY_MAX_PROB = 0.985     // drop already-resolved-in-practice
-const ENERGY_PER_EVENT_CAP = 3
+const ENERGY_FLOOR = 0.008        // below this a strike is pure noise
+const ENERGY_CEIL = 0.985         // above this it's effectively resolved
+const ENERGY_NEAR = 2             // per event: most-probable (near-money) strikes
+const ENERGY_TAIL = 2             // per event: lowest-probability (extreme/shock) strikes
 
 async function fetchPolymarketEnergy() {
   const out = []
@@ -547,18 +548,27 @@ async function fetchPolymarketEnergy() {
         if (!/oil|crude|opec|petroleum|wti|brent|natural gas|\bgas\b|lng|energy/i.test(e.title ?? '')) continue
         if (POLYMARKET_EXCLUDE.test(e.title ?? '')) continue
         seenEventTitles.add(e.title)
-        const eventMarkets = []
+        const cands = []
         for (const m of (e.markets ?? [])) {
           if (m.closed) continue
           const q = m.question ?? m.groupItemTitle ?? ''
           const prices = typeof m.outcomePrices === 'string' ? JSON.parse(m.outcomePrices) : (m.outcomePrices ?? [])
           const yesPrice = parseFloat(prices[0]) || null
-          if (!yesPrice || yesPrice < ENERGY_MIN_PROB || yesPrice > ENERGY_MAX_PROB) continue
-          eventMarkets.push({ slug: m.slug, theme: 'oil_energy', question: q, yesPrice })
+          if (!yesPrice || yesPrice < ENERGY_FLOOR || yesPrice > ENERGY_CEIL) continue
+          cands.push({ slug: m.slug, theme: 'oil_energy', question: q, yesPrice })
         }
-        // Keep the most informative strikes per event (highest probability first).
-        eventMarkets.sort((a, b) => b.yesPrice - a.yesPrice)
-        out.push(...eventMarkets.slice(0, ENERGY_PER_EVENT_CAP))
+        // Keep both ends of the distribution: the most-probable near-money strikes
+        // AND the lowest-probability tail strikes (the oil-shock / spike signal),
+        // so a price-ladder event contributes signal without flooding the panel.
+        const byProbDesc = [...cands].sort((a, b) => b.yesPrice - a.yesPrice)
+        const near = byProbDesc.slice(0, ENERGY_NEAR).map(m => ({ ...m, bucket: 'near' }))
+        const nearSlugs = new Set(near.map(m => m.slug))
+        const tail = [...cands]
+          .sort((a, b) => a.yesPrice - b.yesPrice)
+          .filter(m => !nearSlugs.has(m.slug))
+          .slice(0, ENERGY_TAIL)
+          .map(m => ({ ...m, bucket: 'tail' }))
+        out.push(...near, ...tail)
       }
     } catch (e) { console.log(`Polymarket energy search "${term}" error:`, e.message) }
   }
@@ -602,10 +612,16 @@ async function fetchPolymarketPrices() {
       seen.add(m.slug)
       return true
     })
-    // Reserve slots for energy so high-probability general markets can't crowd it out.
-    const energyTop = dedupe(energyMarkets.sort((a, b) => b.yesPrice - a.yesPrice)).slice(0, 6)
+    // Reserve slots for energy so high-probability general markets can't crowd it
+    // out — and split those slots between near-money and tail/shock strikes so
+    // sorting by probability doesn't silently drop the low-probability tails.
+    const dedupedEnergy = dedupe(energyMarkets)
+    const energyNear = dedupedEnergy.filter(m => m.bucket === 'near').sort((a, b) => b.yesPrice - a.yesPrice).slice(0, 3)
+    const energyTail = dedupedEnergy.filter(m => m.bucket === 'tail').sort((a, b) => b.yesPrice - a.yesPrice).slice(0, 3)
+    const energyTop = [...energyNear, ...energyTail]
     const generalTop = dedupe(allMarkets.sort((a, b) => b.yesPrice - a.yesPrice)).slice(0, 12)
-    return [...energyTop, ...generalTop].sort((a, b) => b.yesPrice - a.yesPrice)
+    // Keep energy grouped near→tail; general markets sorted by probability after.
+    return [...energyTop.sort((a, b) => b.yesPrice - a.yesPrice), ...generalTop.sort((a, b) => b.yesPrice - a.yesPrice)]
   } catch (e) {
     console.log('Polymarket fetch error:', e.message)
     return []

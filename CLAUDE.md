@@ -465,13 +465,16 @@ violet pill-button switcher (same pattern as AlmaPanel sigma band selector).
    `/events` listing (ordered by volume, dominated by sports/crypto), so
    `fetchPolymarketEnergy()` hits the `public-search?q=` endpoint explicitly for
    `POLYMARKET_ENERGY_TERMS` (oil, crude oil, opec, natural gas, wti crude).
-   Price-ladder events carry ~20 near-zero strikes, so energy markets are
-   filtered to implied prob in [0.03, 0.985] and capped at 3 strikes per event
-   (highest-prob first); event title must independently look energy-related
-   (guards against e.g. "brent" matching a baseball player). Final result
-   reserves 6 slots for energy + top 12 general (deduped by slug), re-sorted by
-   probability — so energy is always represented, not crowded out. Fetched live
-   in parallel with Supabase.
+   Price-ladder events carry ~20 strikes, so per event we keep BOTH ends of the
+   distribution (updated 2026-09-08): the 2 most-probable **near-money** strikes
+   AND the 2 lowest-probability **tail/shock** strikes (prob floor 0.008 so
+   spike/crash extremes like "WTI hits $105" / "WTI drops to $80" survive — a
+   flat highest-prob cap would drop them). Event title must independently look
+   energy-related (guards against e.g. "brent" matching a baseball player).
+   Final result reserves 3 near + 3 tail energy slots + top 12 general (deduped
+   by slug); energy grouped near→tail, general sorted by probability — so both
+   the base case and the oil-shock tail are always represented. Fetched live in
+   parallel with Supabase.
 5. **Headlines** (redesigned 2026-08-02, updated 2026-08-28) — dual-source
    headline fetching: **GNews.io as primary** (7 geo-focused search queries,
    10 articles each, 1.5s delays between queries to avoid rate limiting from
