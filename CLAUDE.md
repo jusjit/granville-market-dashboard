@@ -459,8 +459,19 @@ violet pill-button switcher (same pattern as AlmaPanel sigma band selector).
    shortage, China tariffs/embargo, Iran nuclear, gold prices, Suez/Red
    Sea shipping, BOJ rates. Broad political matches (Israel/ceasefire/Gaza,
    recession, generic trade war) removed — were pulling irrelevant markets.
-   `POLYMARKET_EXCLUDE` filters Russia/Putin/Ukraine. Returns top 15 by
-   implied probability, deduped. Fetched live in parallel with Supabase.
+   `POLYMARKET_EXCLUDE` filters Russia/Putin/Ukraine.
+   **Energy augmentation (added 2026-09-08)**: real oil/energy markets (WTI &
+   Natural Gas price ladders, OPEC, crude reserves) do NOT appear in the general
+   `/events` listing (ordered by volume, dominated by sports/crypto), so
+   `fetchPolymarketEnergy()` hits the `public-search?q=` endpoint explicitly for
+   `POLYMARKET_ENERGY_TERMS` (oil, crude oil, opec, natural gas, wti crude).
+   Price-ladder events carry ~20 near-zero strikes, so energy markets are
+   filtered to implied prob in [0.03, 0.985] and capped at 3 strikes per event
+   (highest-prob first); event title must independently look energy-related
+   (guards against e.g. "brent" matching a baseball player). Final result
+   reserves 6 slots for energy + top 12 general (deduped by slug), re-sorted by
+   probability — so energy is always represented, not crowded out. Fetched live
+   in parallel with Supabase.
 5. **Headlines** (redesigned 2026-08-02, updated 2026-08-28) — dual-source
    headline fetching: **GNews.io as primary** (7 geo-focused search queries,
    10 articles each, 1.5s delays between queries to avoid rate limiting from

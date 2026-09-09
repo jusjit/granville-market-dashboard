@@ -518,6 +518,53 @@ const POLYMARKET_SEARCH_TERMS = [
 ]
 const POLYMARKET_EXCLUDE = /russia|putin|ukraine|nato.*russia|kremlin|moscow|zelensky/i
 
+// Energy/oil markets don't surface in the general /events listing (it's ordered
+// by volume and dominated by sports/crypto/politics), so we hit the public-search
+// endpoint explicitly for them. Price-ladder events ("Will WTI hit $X") carry ~20
+// near-zero strikes, so we filter to markets with meaningful probability and cap
+// per event.
+const POLYMARKET_ENERGY_TERMS = ['oil', 'crude oil', 'opec', 'natural gas', 'wti crude']
+const ENERGY_MIN_PROB = 0.03      // drop deep-OTM ladder strikes
+const ENERGY_MAX_PROB = 0.985     // drop already-resolved-in-practice
+const ENERGY_PER_EVENT_CAP = 3
+
+async function fetchPolymarketEnergy() {
+  const out = []
+  const seenEventTitles = new Set()
+  for (const term of POLYMARKET_ENERGY_TERMS) {
+    try {
+      const r = await fetch(`https://gamma-api.polymarket.com/public-search?q=${encodeURIComponent(term)}`, {
+        signal: AbortSignal.timeout(10000),
+        headers: { 'User-Agent': 'GranvilleDashboard/1.0' },
+      })
+      if (!r.ok) continue
+      const data = await r.json()
+      for (const e of (data.events ?? [])) {
+        if (e.closed) continue
+        if (seenEventTitles.has(e.title)) continue
+        // Guard against unrelated hits (e.g. "brent" matching a baseball player) —
+        // require the event title itself to look energy-related.
+        if (!/oil|crude|opec|petroleum|wti|brent|natural gas|\bgas\b|lng|energy/i.test(e.title ?? '')) continue
+        if (POLYMARKET_EXCLUDE.test(e.title ?? '')) continue
+        seenEventTitles.add(e.title)
+        const eventMarkets = []
+        for (const m of (e.markets ?? [])) {
+          if (m.closed) continue
+          const q = m.question ?? m.groupItemTitle ?? ''
+          const prices = typeof m.outcomePrices === 'string' ? JSON.parse(m.outcomePrices) : (m.outcomePrices ?? [])
+          const yesPrice = parseFloat(prices[0]) || null
+          if (!yesPrice || yesPrice < ENERGY_MIN_PROB || yesPrice > ENERGY_MAX_PROB) continue
+          eventMarkets.push({ slug: m.slug, theme: 'oil_energy', question: q, yesPrice })
+        }
+        // Keep the most informative strikes per event (highest probability first).
+        eventMarkets.sort((a, b) => b.yesPrice - a.yesPrice)
+        out.push(...eventMarkets.slice(0, ENERGY_PER_EVENT_CAP))
+      }
+    } catch (e) { console.log(`Polymarket energy search "${term}" error:`, e.message) }
+  }
+  return out
+}
+
 async function fetchPolymarketPrices() {
   try {
     const allMarkets = []
@@ -546,13 +593,19 @@ async function fetchPolymarketPrices() {
         }
       }
     }
-    allMarkets.sort((a, b) => b.yesPrice - a.yesPrice)
+
+    // Merge in explicitly-searched energy markets and dedupe by slug.
+    const energyMarkets = await fetchPolymarketEnergy()
     const seen = new Set()
-    return allMarkets.filter(m => {
+    const dedupe = list => list.filter(m => {
       if (seen.has(m.slug)) return false
       seen.add(m.slug)
       return true
-    }).slice(0, 15)
+    })
+    // Reserve slots for energy so high-probability general markets can't crowd it out.
+    const energyTop = dedupe(energyMarkets.sort((a, b) => b.yesPrice - a.yesPrice)).slice(0, 6)
+    const generalTop = dedupe(allMarkets.sort((a, b) => b.yesPrice - a.yesPrice)).slice(0, 12)
+    return [...energyTop, ...generalTop].sort((a, b) => b.yesPrice - a.yesPrice)
   } catch (e) {
     console.log('Polymarket fetch error:', e.message)
     return []
