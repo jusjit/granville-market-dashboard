@@ -70,7 +70,7 @@ Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX
 - Response path: `data.aiRecord.aiRecordDetail.resultObject[0]`
 - **Minto pyramid output**: prompt requires `Bottom line: …` / `Why:` bullets / `Session lean: …`. SynthesisPanel.jsx parses these into bold lead + bullet list + footer; falls back to plain paragraph if unstructured. Divergence warning forced in as a driver when active.
 - Persistent Supabase cache (`synthesis_cache` id=1), 2h TTL + input-hash invalidation. ~4–6 1min.ai calls/day.
-- **Treasury route** (`?type=treasury`): same function, routed by query param. Accepts `{ auctions }` body, hashes by `auctionDate:cusip`, caches in `synthesis_cache` id=2 (no TTL — only regenerates when auctions change). Prompt asks for 2-3 sentence fixed-income analyst brief on demand quality, foreign demand, and tenor shifts.
+- **Treasury route** (`?type=treasury`): same function, routed by query param. Accepts `{ auctions }` body, hashes by `auctionDate:cusip`, caches in `synthesis_cache` id=2 (no TTL — only regenerates when auctions change). Prompt includes an interpretation framework: tail (2bp+ above = weak), bid-to-cover (2.5x healthy / 2.45x thin), indirect share (70%+ strong / <65% weak), dealer share (<10% good / >12% bad), plus macro context on Japan/yen intervention, China reducing, HF basis trade, domestic real money. Dealer share is passed in the data lines alongside indirect/direct.
 - Note: 1min.ai sometimes returns em-dashes as mojibake — cosmetic, from their API encoding.
 
 ### CRITICAL: 1min.ai API format
