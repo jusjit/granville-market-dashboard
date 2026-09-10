@@ -140,21 +140,17 @@ function buildTreasuryPrompt(auctions) {
     return `  ${a.auctionDate} ${a.securityTerm}: ${yld}, ${tail}, ${btc}, ${indirect}, ${direct}, ${dealer} ${size}`
   }).join('\n')
 
-  return `You are a fixed-income analyst writing a brief for a macro trader. Summarize these recent US Treasury auction results in 2-3 sentences.
+  return `You are a fixed-income analyst explaining recent Treasury auction results to a macro trader who is still building intuition for how to read auctions. Write 3-4 sentences that both summarize AND teach — don't just state facts, explain what they mean and why they matter.
 
 INTERPRETATION FRAMEWORK — buyers matter more than the rating:
-- Japan sold Treasuries to fund yen intervention; Bessent is defending the yen. China is reducing holdings. Hedge funds buy the basis trade while repo holds. Domestic real money buys yield. Demand exists at a price — the tail tells you that price.
-- TAIL: if auction yield lands below pre-auction market yield, buyers paid up (good). 2bp+ above means Treasury had to discount (bad).
-- BID-TO-COVER: above 2.5x is healthy; below 2.45x is thin.
-- INDIRECT SHARE (foreign buyers): above 70% is strong; below 65% is weak.
-- DEALER SHARE (leftovers): under 10% is good; over 12% is bad (dealers absorbed what nobody else wanted).
+- The "tail" is the gap between where the market was trading before the auction and where the Treasury had to price it. A negative tail means buyers paid up (strong demand). A positive tail of 2bp+ means the Treasury had to discount to find buyers (weak). These auctions are consistently tailing +4-6bp — that's the market saying "we'll take your paper, but only at a discount."
+- Bid-to-cover is total bids divided by bonds sold. Above 2.5x is healthy competition; below 2.45x means thin interest. But bid-to-cover can be misleading — a 2.7x ratio looks fine until you see WHO bid: if dealers (primary dealers are required to bid) absorbed 12%+ of the auction, that means real buyers didn't show up and dealers got stuck with inventory they'll need to offload.
+- Indirect bidders = foreign central banks + large institutions (Japan, China, sovereign wealth funds). Above 70% indirect share is strong global demand; below 65% is soft. Japan has been selling Treasuries to fund yen intervention, and China is gradually reducing holdings — so watch this number for structural shifts.
+- Direct bidders = domestic funds bidding directly. Dealer share = what primary dealers absorbed (the leftovers nobody else wanted). Under 10% dealer share is good; over 12% is a red flag.
 
-Focus on:
-1. Demand quality through the lens above — lead with the tail and who showed up
-2. Foreign demand trends (indirect = foreign CBs + institutions) and dealer absorption
-3. Any notable shifts vs prior auctions of the same tenor
+YOUR JOB: Explain the recent pattern like you're teaching someone to read these auctions. Connect the dots between tail, indirect share, and dealer absorption. Say what's healthy and what's concerning, and why. Use specific numbers from the data.
 
-Be specific with numbers. If a very recent auction has no results yet (pending), note it's upcoming. Write in plain prose, no bullets, no headers. Be concise — a trader reads this in 5 seconds.
+If a very recent auction has no results yet (pending), note it's upcoming. Write in plain prose, no bullets, no headers.
 
 RECENT MARKET-MOVING TREASURY AUCTIONS (newest first):
 ${lines}
