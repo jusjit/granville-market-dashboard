@@ -16,25 +16,25 @@ const CONTEXT_BADGE = 'text-slate-500 bg-slate-900/40 border-slate-800'
 
 const SIGMA_SYMBOLS = ['SPX', 'ES', 'SPY', 'VIX', 'IWM', 'QQQ']
 
-// Empirical touch rates split by direction (intraday_pivot_touch rule).
-// Downside levels have fatter tails due to equity skew.
-function touchPct(sigma, side = 'up') {
-  if (side === 'dn') {
-    // n=215: 95.5, 58.6, 33.3, 27.8, 26.2, 5.6
-    if (sigma <= 0.5) return 96
-    if (sigma <= 1.0) return 59
-    if (sigma <= 1.5) return 33
-    if (sigma <= 2.0) return 28
-    if (sigma <= 3.0) return 26
-    return 6
-  }
-  // Upside n=210: 96.6, 72.1, 40.9, 34.5, 12.5
-  if (sigma <= 0.5) return 97
-  if (sigma <= 1.0) return 72
-  if (sigma <= 1.5) return 41
-  if (sigma <= 2.0) return 35
-  if (sigma <= 3.0) return 13
-  return 2
+// Empirical touch rates by level type and sigma distance from band center.
+// 319 trading days (Feb 2025–Jun 2026), n=500 beyond-center observations.
+// Buckets: [0–0.5σ, 0.5–1σ, 1–1.5σ, 1.5–2σ, 2–3σ, 3σ+]
+const TOUCH_RATES = {
+  centroid:        [80, 70, 71, 62, 59, 31],
+  upside_pivot:    [85, 67, 62, 48, 48, 17],
+  downside_pivot:  [57, 57, 41, 33, 35, 11],
+  upside_target:   [25, 25, 25, 18, 20,  0],
+  downside_target: [18, 18, 18,  8, 22,  0],
+}
+
+function touchPct(sigma, levelType = 'centroid') {
+  const rates = TOUCH_RATES[levelType] ?? TOUCH_RATES.centroid
+  if (sigma <= 0.5) return rates[0]
+  if (sigma <= 1.0) return rates[1]
+  if (sigma <= 1.5) return rates[2]
+  if (sigma <= 2.0) return rates[3]
+  if (sigma <= 3.0) return rates[4]
+  return rates[5]
 }
 
 function touchColor(pct) {
@@ -43,8 +43,8 @@ function touchColor(pct) {
   return 'text-red-400'
 }
 
-function Level({ label, value, accent, sigma, side, digits = 2 }) {
-  const pct = sigma != null ? touchPct(sigma, side) : null
+function Level({ label, value, accent, sigma, levelType, digits = 2 }) {
+  const pct = sigma != null ? touchPct(sigma, levelType) : null
   return (
     <div className="flex flex-col gap-0.5">
       <span className="text-[10px] text-slate-600 uppercase tracking-widest">{label}</span>
@@ -126,8 +126,6 @@ export default function AlmaPanel({ data, loading, error }) {
     if (sigmaDn == null || sigmaDn <= 0) return null
     return (bandCenter - price) / sigmaDn
   }
-  const levelSide = (price) => (price != null && bandCenter != null && price < bandCenter) ? 'dn' : 'up'
-
   const centroidSigma = toSigma(centroid)
   const upPivotSigma = toSigma(d.upside_pivot)
   const dnPivotSigma = toSigma(d.downside_pivot)
@@ -149,8 +147,7 @@ export default function AlmaPanel({ data, loading, error }) {
               </span>
               <span className="text-xs text-slate-500">daily centroid</span>
               {centroidSigma != null && (() => {
-                const cSide = levelSide(centroid)
-                const cPct = touchPct(centroidSigma, cSide)
+                const cPct = touchPct(centroidSigma, 'centroid')
                 return (
                   <span className="flex items-center gap-1.5">
                     <span className="font-mono text-[11px] text-violet-400">{centroidSigma.toFixed(2)}σ</span>
@@ -177,10 +174,10 @@ export default function AlmaPanel({ data, loading, error }) {
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
-          <Level label="Upside Pivot" value={d.upside_pivot} accent="text-green-400" sigma={upPivotSigma} side={levelSide(d.upside_pivot)} />
-          <Level label="Downside Pivot" value={d.downside_pivot} accent="text-red-400" sigma={dnPivotSigma} side={levelSide(d.downside_pivot)} />
-          <Level label="Upside Target" value={d.upside_target} accent="text-green-500/70" sigma={upTargetSigma} side={levelSide(d.upside_target)} />
-          <Level label="Downside Target" value={d.downside_target} accent="text-red-500/70" sigma={dnTargetSigma} side={levelSide(d.downside_target)} />
+          <Level label="Upside Pivot" value={d.upside_pivot} accent="text-green-400" sigma={upPivotSigma} levelType="upside_pivot" />
+          <Level label="Downside Pivot" value={d.downside_pivot} accent="text-red-400" sigma={dnPivotSigma} levelType="downside_pivot" />
+          <Level label="Upside Target" value={d.upside_target} accent="text-green-500/70" sigma={upTargetSigma} levelType="upside_target" />
+          <Level label="Downside Target" value={d.downside_target} accent="text-red-500/70" sigma={dnTargetSigma} levelType="downside_target" />
         </div>
 
         {/* Sigma bands */}
