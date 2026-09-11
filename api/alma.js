@@ -83,6 +83,9 @@ function evaluateRule(rule, ctx) {
     case 'sigma_bands_are_not_containment':
       return intraday?.SPX_s1_upper != null && intraday?.SPX_s1_lower != null
 
+    case 'sigma_touch_decay':
+      return intraday?.SPX_s1_upper != null && intraday?.SPX_s1_lower != null
+
     case 'intraday_centroid_touch':
       return centroid != null
 
