@@ -96,17 +96,50 @@ export default function AlmaPanel({ data, loading, error }) {
     d.directional_bias?.toLowerCase().includes('bull') ? 'text-green-400' :
     d.directional_bias?.toLowerCase().includes('bear') ? 'text-red-400' : 'text-slate-300'
 
-  // Sigma distances: the bands aren't centered on the centroid — they're based
-  // on implied vol around spot. Use half the 1σ band width as one sigma unit,
-  // then measure each level's distance from the band midpoint.
+  // Sigma distance: interpolate where a price falls between the known SPX
+  // sigma band values (which are already provided at 1σ, 2σ, 3σ).
   const centroid = d.centroid
-  const s1u = d.SPX_s1_upper
-  const s1l = d.SPX_s1_lower
-  const sigmaWidth = (s1u != null && s1l != null) ? (s1u - s1l) / 2 : null
-  const bandMid = (s1u != null && s1l != null) ? (s1u + s1l) / 2 : null
+  const bands = [
+    { sigma: 3, upper: d.SPX_s3_upper, lower: d.SPX_s3_lower },
+    { sigma: 2, upper: d.SPX_s2_upper, lower: d.SPX_s2_lower },
+    { sigma: 1, upper: d.SPX_s1_upper, lower: d.SPX_s1_lower },
+  ].filter(b => b.upper != null && b.lower != null)
+
   const toSigma = (price) => {
-    if (price == null || bandMid == null || sigmaWidth == null || sigmaWidth <= 0) return null
-    return Math.abs(price - bandMid) / sigmaWidth
+    if (price == null || bands.length === 0) return null
+    const innerBand = bands[bands.length - 1]
+    // Inside the innermost band
+    if (price >= innerBand.lower && price <= innerBand.upper) {
+      const mid = (innerBand.upper + innerBand.lower) / 2
+      const halfWidth = (innerBand.upper - innerBand.lower) / 2
+      return halfWidth > 0 ? Math.abs(price - mid) / halfWidth * innerBand.sigma : 0
+    }
+    // Above or below — find which two bands it falls between
+    const isAbove = price > innerBand.upper
+    for (let i = bands.length - 1; i >= 0; i--) {
+      const edge = isAbove ? bands[i].upper : bands[i].lower
+      if (isAbove ? price <= edge : price >= edge) {
+        // Between this band and the next inner one
+        const innerEdge = i < bands.length - 1
+          ? (isAbove ? bands[i + 1].upper : bands[i + 1].lower)
+          : (innerBand.upper + innerBand.lower) / 2
+        const innerSig = i < bands.length - 1 ? bands[i + 1].sigma : 0
+        const span = Math.abs(edge - innerEdge)
+        const dist = isAbove ? price - innerEdge : innerEdge - price
+        return span > 0 ? innerSig + (bands[i].sigma - innerSig) * (dist / span) : bands[i].sigma
+      }
+    }
+    // Beyond outermost band — extrapolate
+    const outer = bands[0]
+    const prev = bands.length > 1 ? bands[1] : null
+    if (prev) {
+      const outerEdge = isAbove ? outer.upper : outer.lower
+      const prevEdge = isAbove ? prev.upper : prev.lower
+      const step = Math.abs(outerEdge - prevEdge)
+      const beyond = isAbove ? price - outerEdge : outerEdge - price
+      return step > 0 ? outer.sigma + (beyond / step) : outer.sigma
+    }
+    return outer.sigma
   }
 
   const centroidSigma = toSigma(centroid)
