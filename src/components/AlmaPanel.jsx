@@ -16,13 +16,24 @@ const CONTEXT_BADGE = 'text-slate-500 bg-slate-900/40 border-slate-800'
 
 const SIGMA_SYMBOLS = ['SPX', 'ES', 'SPY', 'VIX', 'IWM', 'QQQ']
 
-// Empirical touch rates from sigma_touch_decay rule (n=541, all buckets p<0.001)
-function touchPct(sigma) {
-  if (sigma <= 0.5) return 95
-  if (sigma <= 1.0) return 66
-  if (sigma <= 1.5) return 37
-  if (sigma <= 2.0) return 29
-  if (sigma <= 3.0) return 14
+// Empirical touch rates split by direction (intraday_pivot_touch rule).
+// Downside levels have fatter tails due to equity skew.
+function touchPct(sigma, side = 'up') {
+  if (side === 'dn') {
+    // n=215: 95.5, 58.6, 33.3, 27.8, 26.2, 5.6
+    if (sigma <= 0.5) return 96
+    if (sigma <= 1.0) return 59
+    if (sigma <= 1.5) return 33
+    if (sigma <= 2.0) return 28
+    if (sigma <= 3.0) return 26
+    return 6
+  }
+  // Upside n=210: 96.6, 72.1, 40.9, 34.5, 12.5
+  if (sigma <= 0.5) return 97
+  if (sigma <= 1.0) return 72
+  if (sigma <= 1.5) return 41
+  if (sigma <= 2.0) return 35
+  if (sigma <= 3.0) return 13
   return 2
 }
 
@@ -32,8 +43,8 @@ function touchColor(pct) {
   return 'text-red-400'
 }
 
-function Level({ label, value, accent, sigma, digits = 2 }) {
-  const pct = sigma != null ? touchPct(sigma) : null
+function Level({ label, value, accent, sigma, side, digits = 2 }) {
+  const pct = sigma != null ? touchPct(sigma, side) : null
   return (
     <div className="flex flex-col gap-0.5">
       <span className="text-[10px] text-slate-600 uppercase tracking-widest">{label}</span>
@@ -130,14 +141,18 @@ export default function AlmaPanel({ data, loading, error }) {
                 {d.centroid != null ? d.centroid.toFixed(2) : '—'}
               </span>
               <span className="text-xs text-slate-500">daily centroid</span>
-              {centroidSigma != null && (
-                <span className="flex items-center gap-1.5">
-                  <span className="font-mono text-[11px] text-violet-400">{centroidSigma.toFixed(2)}σ from spot</span>
-                  <span className={`font-mono text-[11px] font-bold ${touchColor(touchPct(centroidSigma))}`}>
-                    ~{touchPct(centroidSigma)}% touch
+              {centroidSigma != null && (() => {
+                const cSide = (spot != null && centroid != null && centroid < spot) ? 'dn' : 'up'
+                const cPct = touchPct(centroidSigma, cSide)
+                return (
+                  <span className="flex items-center gap-1.5">
+                    <span className="font-mono text-[11px] text-violet-400">{centroidSigma.toFixed(2)}σ from spot</span>
+                    <span className={`font-mono text-[11px] font-bold ${touchColor(cPct)}`}>
+                      ~{cPct}% touch
+                    </span>
                   </span>
-                </span>
-              )}
+                )
+              })()}
             </div>
           </div>
           <div className="flex gap-2 flex-wrap">
@@ -155,10 +170,10 @@ export default function AlmaPanel({ data, loading, error }) {
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
-          <Level label="Upside Pivot" value={d.upside_pivot} accent="text-green-400" sigma={upPivotSigma} />
-          <Level label="Downside Pivot" value={d.downside_pivot} accent="text-red-400" sigma={dnPivotSigma} />
-          <Level label="Upside Target" value={d.upside_target} accent="text-green-500/70" sigma={upTargetSigma} />
-          <Level label="Downside Target" value={d.downside_target} accent="text-red-500/70" sigma={dnTargetSigma} />
+          <Level label="Upside Pivot" value={d.upside_pivot} accent="text-green-400" sigma={upPivotSigma} side="up" />
+          <Level label="Downside Pivot" value={d.downside_pivot} accent="text-red-400" sigma={dnPivotSigma} side="dn" />
+          <Level label="Upside Target" value={d.upside_target} accent="text-green-500/70" sigma={upTargetSigma} side="up" />
+          <Level label="Downside Target" value={d.downside_target} accent="text-red-500/70" sigma={dnTargetSigma} side="dn" />
         </div>
 
         {/* Sigma bands */}
