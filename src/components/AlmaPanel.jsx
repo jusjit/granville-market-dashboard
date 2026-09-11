@@ -107,19 +107,26 @@ export default function AlmaPanel({ data, loading, error }) {
     d.directional_bias?.toLowerCase().includes('bull') ? 'text-green-400' :
     d.directional_bias?.toLowerCase().includes('bear') ? 'text-red-400' : 'text-slate-300'
 
-  // Sigma distance from spot: the backtest (sigma_touch_decay, n=541) measures
-  // how far each level is from the session open in sigma units. Use half the
-  // 1σ band width as the vol scale, and measure from SPX open (or last).
+  // Sigma distance measured from the band center (≈ prev close) using
+  // directional widths so the number aligns with the visible sigma bands.
+  // A level below the 2σ lower band correctly shows >2σ.
   const centroid = d.centroid
-  const spot = data.live?.spx?.open ?? spxLast
   const s1u = d.SPX_s1_upper
   const s1l = d.SPX_s1_lower
-  const sigmaWidth = (s1u != null && s1l != null) ? (s1u - s1l) / 2 : null
+  const bandCenter = (s1u != null && s1l != null) ? (s1u + s1l) / 2 : null
+  const sigmaUp = (s1u != null && bandCenter != null) ? s1u - bandCenter : null
+  const sigmaDn = (s1l != null && bandCenter != null) ? bandCenter - s1l : null
 
   const toSigma = (price) => {
-    if (price == null || spot == null || sigmaWidth == null || sigmaWidth <= 0) return null
-    return Math.abs(price - spot) / sigmaWidth
+    if (price == null || bandCenter == null) return null
+    if (price >= bandCenter) {
+      if (sigmaUp == null || sigmaUp <= 0) return null
+      return (price - bandCenter) / sigmaUp
+    }
+    if (sigmaDn == null || sigmaDn <= 0) return null
+    return (bandCenter - price) / sigmaDn
   }
+  const levelSide = (price) => (price != null && bandCenter != null && price < bandCenter) ? 'dn' : 'up'
 
   const centroidSigma = toSigma(centroid)
   const upPivotSigma = toSigma(d.upside_pivot)
@@ -142,11 +149,11 @@ export default function AlmaPanel({ data, loading, error }) {
               </span>
               <span className="text-xs text-slate-500">daily centroid</span>
               {centroidSigma != null && (() => {
-                const cSide = (spot != null && centroid != null && centroid < spot) ? 'dn' : 'up'
+                const cSide = levelSide(centroid)
                 const cPct = touchPct(centroidSigma, cSide)
                 return (
                   <span className="flex items-center gap-1.5">
-                    <span className="font-mono text-[11px] text-violet-400">{centroidSigma.toFixed(2)}σ from spot</span>
+                    <span className="font-mono text-[11px] text-violet-400">{centroidSigma.toFixed(2)}σ</span>
                     <span className={`font-mono text-[11px] font-bold ${touchColor(cPct)}`}>
                       ~{cPct}% touch
                     </span>
@@ -170,10 +177,10 @@ export default function AlmaPanel({ data, loading, error }) {
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
-          <Level label="Upside Pivot" value={d.upside_pivot} accent="text-green-400" sigma={upPivotSigma} side="up" />
-          <Level label="Downside Pivot" value={d.downside_pivot} accent="text-red-400" sigma={dnPivotSigma} side="dn" />
-          <Level label="Upside Target" value={d.upside_target} accent="text-green-500/70" sigma={upTargetSigma} side="up" />
-          <Level label="Downside Target" value={d.downside_target} accent="text-red-500/70" sigma={dnTargetSigma} side="dn" />
+          <Level label="Upside Pivot" value={d.upside_pivot} accent="text-green-400" sigma={upPivotSigma} side={levelSide(d.upside_pivot)} />
+          <Level label="Downside Pivot" value={d.downside_pivot} accent="text-red-400" sigma={dnPivotSigma} side={levelSide(d.downside_pivot)} />
+          <Level label="Upside Target" value={d.upside_target} accent="text-green-500/70" sigma={upTargetSigma} side={levelSide(d.upside_target)} />
+          <Level label="Downside Target" value={d.downside_target} accent="text-red-500/70" sigma={dnTargetSigma} side={levelSide(d.downside_target)} />
         </div>
 
         {/* Sigma bands */}
