@@ -40,7 +40,7 @@ Private project ONLY: `VITE_SHOW_ALMA=true` (its absence hides Alma on public).
 Private project ONLY (in addition to `VITE_SHOW_ALMA`): `VITE_SHOW_GEO_REGIME=true` — enables the collapsible Geo Regime panel. Same on/off pattern as Alma.
 
 ## Supabase (project "LalliChaths", https://oteatsbkdamvczdceion.supabase.co)
-Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX/VIX OHLC + gaps), `rules` (12 rules, **schema v2** — see below), `dashboard_snapshots` (twice-daily Granville+macro), `synthesis_cache` (id=1 main AI synthesis 2h cache, id=2 treasury auction summary hash-only cache), `vol_surface_snapshots` (2-hourly vol term structure for history slider), `vix_futures_snapshots` (4-hourly VX monthly futures prices), `fed_watch_snapshots` (4-hourly CME FedWatch probabilities).
+Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX/VIX OHLC + gaps), `rules` (13 rules, **schema v2** — see below), `dashboard_snapshots` (twice-daily Granville+macro), `synthesis_cache` (id=1 main AI synthesis 2h cache, id=2 treasury auction summary hash-only cache), `vol_surface_snapshots` (2-hourly vol term structure for history slider), `vix_futures_snapshots` (4-hourly VX monthly futures prices), `fed_watch_snapshots` (4-hourly CME FedWatch probabilities).
 - RLS enabled, no policies — only service role key reads/writes.
 - `intraday_posts`/`weekly_posts`: unique constraint on `date`, identity ids (for webhook upserts).
 - Original data migrated from SQLite (`Alma backtest rules/` folder, gitignored).
@@ -164,7 +164,7 @@ Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX
 - Production key, `api.tradier.com`. Real indices work: SPX, VIX, VIX1D, VIX9D, VIX3M. NOT available: MOVE (symbol = Corvex Inc stock!), USDJPY, DXY — no forex.
 
 ## Dashboard Sections (in order)
-1. **Alma Centroid** — private dashboard only (`VITE_SHOW_ALMA=true`). Layout: Daily centroid card (violet, with pivots/targets + sigma bands) → Live SPX Reference (SPX Last, Prev Close, Open, Gap from Centroid, VIX Gap) → Weekly levels card → Alma Signal Log → Active Rules (`AlmaActiveRules`, exported from AlmaPanel, rendered in App.jsx after AlmaLog).
+1. **Alma Centroid** — private dashboard only (`VITE_SHOW_ALMA=true`). Layout: Daily centroid card (violet, centroid value + sigma distance from spot + touch %, pivots/targets each with sigma distance + directional touch probability, sigma bands grid with symbol switcher) → Live SPX Reference (SPX Last, Prev Close, Open, Gap from Centroid, VIX Gap) → Weekly levels card → Alma Signal Log → Active Rules (`AlmaActiveRules`, exported from AlmaPanel, rendered in App.jsx after AlmaLog). Touch probabilities are from backtest (`sigma_touch_decay` / `intraday_pivot_touch`), split by upside (n=210) and downside (n=215) — downside has fatter tails (26.2% at 2-3σ vs 12.5% upside). Sigma distance measured from SPX open using half the 1σ band width as the vol unit.
 2. **Vol Surface** — SPX term structure, Tradier/ORATS options data. Has its own Refresh button (re-fetches live data without refreshing the full dashboard) + Compare snapshot toggle for historical overlay.
 3. **AI Synthesis** — indigo panel, gemini-2.5-flash via 1min.ai, updates on refresh
 4. **Granville Composite** — Recharts half-circle gauge (0–100)
