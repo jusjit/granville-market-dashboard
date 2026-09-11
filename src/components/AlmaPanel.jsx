@@ -96,25 +96,24 @@ export default function AlmaPanel({ data, loading, error }) {
     d.directional_bias?.toLowerCase().includes('bull') ? 'text-green-400' :
     d.directional_bias?.toLowerCase().includes('bear') ? 'text-red-400' : 'text-slate-300'
 
-  // Sigma distances: measured from centroid, using the correct side's band width.
-  // Upside levels use (s1_upper - centroid), downside use (centroid - s1_lower).
+  // Sigma distances: the bands aren't centered on the centroid — they're based
+  // on implied vol around spot. Use half the 1σ band width as one sigma unit,
+  // then measure each level's distance from the band midpoint.
   const centroid = d.centroid
-  const sigmaUp = (d.SPX_s1_upper != null && centroid != null) ? d.SPX_s1_upper - centroid : null
-  const sigmaDn = (d.SPX_s1_lower != null && centroid != null) ? centroid - d.SPX_s1_lower : null
-  const toSigma = (price, side) => {
-    if (price == null || centroid == null) return null
-    const w = side === 'up' ? sigmaUp : sigmaDn
-    if (w == null || w <= 0) return null
-    return Math.abs(price - centroid) / w
+  const s1u = d.SPX_s1_upper
+  const s1l = d.SPX_s1_lower
+  const sigmaWidth = (s1u != null && s1l != null) ? (s1u - s1l) / 2 : null
+  const bandMid = (s1u != null && s1l != null) ? (s1u + s1l) / 2 : null
+  const toSigma = (price) => {
+    if (price == null || bandMid == null || sigmaWidth == null || sigmaWidth <= 0) return null
+    return Math.abs(price - bandMid) / sigmaWidth
   }
 
-  const centroidSigma = spxLast != null && sigmaUp != null && sigmaUp > 0
-    ? Math.abs(spxLast - centroid) / (spxLast >= centroid ? sigmaUp : sigmaDn)
-    : null
-  const upPivotSigma = toSigma(d.upside_pivot, 'up')
-  const dnPivotSigma = toSigma(d.downside_pivot, 'dn')
-  const upTargetSigma = toSigma(d.upside_target, 'up')
-  const dnTargetSigma = toSigma(d.downside_target, 'dn')
+  const centroidSigma = toSigma(centroid)
+  const upPivotSigma = toSigma(d.upside_pivot)
+  const dnPivotSigma = toSigma(d.downside_pivot)
+  const upTargetSigma = toSigma(d.upside_target)
+  const dnTargetSigma = toSigma(d.downside_target)
 
   return (
     <div className="space-y-4">
