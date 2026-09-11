@@ -96,21 +96,25 @@ export default function AlmaPanel({ data, loading, error }) {
     d.directional_bias?.toLowerCase().includes('bull') ? 'text-green-400' :
     d.directional_bias?.toLowerCase().includes('bear') ? 'text-red-400' : 'text-slate-300'
 
-  // Compute sigma distances for each level relative to SPX open (or last)
-  const s1u = d.SPX_s1_upper
+  // Sigma distances: measured from centroid, using the correct side's band width.
+  // Upside levels use (s1_upper - centroid), downside use (centroid - s1_lower).
   const centroid = d.centroid
-  const sigmaWidth = (s1u != null && centroid != null) ? s1u - centroid : null
-  const ref = spxLast ?? d.centroid
-  const toSigma = (price) => {
-    if (price == null || ref == null || sigmaWidth == null || sigmaWidth <= 0) return null
-    return Math.abs(price - ref) / sigmaWidth
+  const sigmaUp = (d.SPX_s1_upper != null && centroid != null) ? d.SPX_s1_upper - centroid : null
+  const sigmaDn = (d.SPX_s1_lower != null && centroid != null) ? centroid - d.SPX_s1_lower : null
+  const toSigma = (price, side) => {
+    if (price == null || centroid == null) return null
+    const w = side === 'up' ? sigmaUp : sigmaDn
+    if (w == null || w <= 0) return null
+    return Math.abs(price - centroid) / w
   }
 
-  const centroidSigma = toSigma(centroid)
-  const upPivotSigma = toSigma(d.upside_pivot)
-  const dnPivotSigma = toSigma(d.downside_pivot)
-  const upTargetSigma = toSigma(d.upside_target)
-  const dnTargetSigma = toSigma(d.downside_target)
+  const centroidSigma = spxLast != null && sigmaUp != null && sigmaUp > 0
+    ? Math.abs(spxLast - centroid) / (spxLast >= centroid ? sigmaUp : sigmaDn)
+    : null
+  const upPivotSigma = toSigma(d.upside_pivot, 'up')
+  const dnPivotSigma = toSigma(d.downside_pivot, 'dn')
+  const upTargetSigma = toSigma(d.upside_target, 'up')
+  const dnTargetSigma = toSigma(d.downside_target, 'dn')
 
   return (
     <div className="space-y-4">
