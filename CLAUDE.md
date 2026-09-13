@@ -40,7 +40,7 @@ Private project ONLY: `VITE_SHOW_ALMA=true` (its absence hides Alma on public).
 Private project ONLY (in addition to `VITE_SHOW_ALMA`): `VITE_SHOW_GEO_REGIME=true` — enables the collapsible Geo Regime panel. Same on/off pattern as Alma.
 
 ## Supabase (project "LalliChaths", https://oteatsbkdamvczdceion.supabase.co)
-Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX/VIX OHLC + gaps), `rules` (13 rules, **schema v2** — see below), `dashboard_snapshots` (twice-daily Granville+macro), `synthesis_cache` (id=1 main AI synthesis 2h cache, id=2 treasury auction summary hash-only cache), `vol_surface_snapshots` (2-hourly vol term structure for history slider), `vix_futures_snapshots` (4-hourly VX monthly futures prices), `fed_watch_snapshots` (4-hourly CME FedWatch probabilities).
+Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX/VIX OHLC + gaps), `rules` (13 rules, **schema v2** — see below), `dashboard_snapshots` (twice-daily Granville+macro), `synthesis_cache` (id=1 main AI synthesis 2h cache, id=2 treasury auction summary hash-only cache), `vol_surface_snapshots` (2-hourly vol term structure for history slider), `vix_futures_snapshots` (4-hourly VX monthly futures prices), `fed_watch_snapshots` (4-hourly CME FedWatch probabilities), `noah_sanity_check_log` (weekly Noah Predict sanity check — see below).
 - RLS enabled, no policies — only service role key reads/writes.
 - `intraday_posts`/`weekly_posts`: unique constraint on `date`, identity ids (for webhook upserts).
 - Original data migrated from SQLite (`Alma backtest rules/` folder, gitignored).
@@ -540,6 +540,38 @@ array in response.
 - Cron: `.github/workflows/geo-regime-aggregator.yml` — every 12h + workflow_dispatch; `geo-regime-full-scan.yml` — 1x/day weekday close
 - Supabase schema: `../geo-monitor-scaffold/*.sql` (all applied)
 - worldmonitor clone: `../worldmonitor` (branch `geo-variant`)
+
+### Noah Predict Sanity Check (added 2026-09-13)
+
+Weekly automated comparison of Geo Monitor trajectory vs Noah Predict's
+independent `risk_current_read` assessment. Runs as a **Claude desktop
+scheduled task** (not GitHub Actions) because Noah is an MCP tool, not a
+REST API.
+
+- **Supabase table**: `noah_sanity_check_log` — columns: `date` (unique),
+  `theme`, `geo_monitor_read` (JSONB — trajectory state at run time),
+  `noah_read` (JSONB — Noah signal state + evidence summary),
+  `market_state_at_log_time` (JSONB — relevant prices for that theme),
+  `market_outcome_7d`/`market_outcome_30d` (JSONB — backfilled later),
+  `noah_job_id`, `status` (completed/quota_exceeded/error), `error_message`.
+  Migration: `scripts/noah-sanity-check-migration.sql`.
+- **Scheduled task**: `noah-sanity-check` — runs every Saturday ~9:17am local.
+  Uses `scripts/noah-sanity-check.mjs` helper (subcommands: `get-theme`,
+  `log`, `backfill`).
+- **Theme selection**: highest-confidence flagged run from Trajectory Layer
+  (past 7 days), falls back to regime view severities.
+- **Theme-to-market mapping**: oil → WTI/Brent (FRED), carry → USD/JPY +
+  VIX, equity → SPY + VIX, haven → Gold + VIX, freight → WTI + NatGas.
+- **Noah shape**: `risk_current_read` ONLY — never `forecast_this` (known
+  quality issue: defaults to thin historical prior with no current evidence).
+- **Quota**: Noah free beta tier, ~13 connected investigations/month,
+  refreshing monthly. Weekly cron = ~4-5/month. On quota error, logs row
+  with `status='quota_exceeded'` and skips (no retry).
+- **Market outcome backfill**: `backfill` subcommand checks for rows where
+  7d or 30d have passed, fills `market_outcome_7d`/`30d` from FRED (daily
+  series, ~1 day lag) + frankfurter.app (USD/JPY). Finnhub only gives
+  current quotes, not historical — SPY/VIXY backfill not available via
+  Finnhub.
 
 ## Known Limitations & Gotchas
 - **Finnhub free tier**: No CBOE indices (`^VIX`), no MOVE index. Use ETF proxies.
