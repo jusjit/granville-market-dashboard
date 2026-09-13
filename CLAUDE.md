@@ -297,6 +297,14 @@ App.jsx
   Prompt specifies INTEGER 0-100 for confidence and alma_reversion_confidence
   (gemini returns 0-1 scale without this). No API-level prompt-caching lever
   in 1min.ai — checked 2026-07-12.
+- **Counter-evidence requirement** (added 2026-09-13): SYSTEM_PROMPT now
+  requires the LLM to actively search for de-escalation evidence per flagged
+  theme (diplomatic talks, flow normalization, bypass capacity, etc) and
+  report it in `briefing.themes[].counter_signals`. Motivated by a Noah
+  Predict comparison showing one-sided escalation narratives when real
+  counter-evidence existed. UI renders as green "De-escalation watch" line
+  on theme cards (or grey "No meaningful de-escalation signals" when none
+  found). `CounterSignals` component in `GeoRegimePanel.jsx`.
 - flagged=true → upsert `geopolitical_signals` (history trigger appends transitions);
   `current_regime` VIEW is what the dashboard will eventually read as a gate/weight
   on Granville timing rules (never an entry signal). Cross-repo wiring is a future step.
