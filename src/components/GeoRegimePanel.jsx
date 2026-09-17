@@ -202,15 +202,21 @@ function matchThemeToRegion(theme) {
   return 'global'
 }
 
-function CounterSignals({ text }) {
+function CounterSignals({ text, evaluatedAt }) {
   if (!text) return null
+  if (evaluatedAt) {
+    const ageMs = Date.now() - new Date(evaluatedAt).getTime()
+    if (ageMs > 30 * 86400000) return null
+  }
   const isEmpty = /no meaningful de-escalation|no genuine counter|none found|no counter/i.test(text)
+  const ageLabel = evaluatedAt ? fmtAgo(evaluatedAt) : null
   return (
     <div className={`mt-1.5 rounded px-2 py-1 border ${isEmpty ? 'border-slate-800/30 bg-slate-900/20' : 'border-emerald-900/40 bg-emerald-950/20'}`}>
       <div className="flex items-center gap-1 mb-0.5">
         <span className={`text-[8px] font-semibold uppercase tracking-wider ${isEmpty ? 'text-slate-600' : 'text-emerald-500/70'}`}>
           {isEmpty ? '⊘ Counter-evidence' : '⟲ De-escalation watch'}
         </span>
+        {ageLabel && <span className="text-[8px] text-slate-700 ml-auto">{ageLabel}</span>}
       </div>
       <p className={`text-[10px] leading-relaxed ${isEmpty ? 'text-slate-600 italic' : 'text-emerald-300/80'}`}>{text}</p>
     </div>
@@ -412,7 +418,7 @@ function WorldBriefing({ latestRun }) {
                       {t.sources_confirmed.length > 4 && <span className="text-[8px] text-slate-600">+{t.sources_confirmed.length - 4}</span>}
                     </div>
                   )}
-                  <CounterSignals text={t.counter_signals} />
+                  <CounterSignals text={t.counter_signals} evaluatedAt={latestRun?.evaluated_at} />
                 </div>
               ))}
             </div>
@@ -443,7 +449,7 @@ function WorldBriefing({ latestRun }) {
                     {t.sources_confirmed.length > 4 && <span className="text-[8px] text-slate-600">+{t.sources_confirmed.length - 4}</span>}
                   </div>
                 )}
-                <CounterSignals text={t.counter_signals} />
+                <CounterSignals text={t.counter_signals} evaluatedAt={latestRun?.evaluated_at} />
               </div>
             ))}
           </div>
