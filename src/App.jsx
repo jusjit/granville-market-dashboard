@@ -8,10 +8,11 @@ import AlmaLog from './components/AlmaLog'
 import VolSurfacePanel from './components/VolSurfacePanel'
 import { fetchVolSurface } from './lib/volsurface'
 import ReferenceDataPanel from './components/ReferenceDataPanel'
-import { fetchReferenceLatest } from './lib/referencedata'
+import { fetchReferenceLatest, fetchOvernightContext } from './lib/referencedata'
 import GeoRegimePanel from './components/GeoRegimePanel'
 import { fetchGeoRegime } from './lib/georegime'
 import TreasuryAuctionPanel from './components/TreasuryAuctionPanel'
+import OvernightContextPanel from './components/OvernightContextPanel'
 import { fetchTreasuryAuctions } from './lib/treasury'
 
 import LoginGate from './components/LoginGate'
@@ -58,6 +59,10 @@ export default function App() {
   const [geoLoading, setGeoLoading] = useState(false)
   const [geoError, setGeoError] = useState(null)
 
+  const [overnightData, setOvernightData] = useState(null)
+  const [overnightLoading, setOvernightLoading] = useState(false)
+  const [overnightError, setOvernightError] = useState(null)
+
   const [treasuryData, setTreasuryData] = useState(null)
   const [treasuryLoading, setTreasuryLoading] = useState(false)
   const [treasuryError, setTreasuryError] = useState(null)
@@ -94,6 +99,12 @@ export default function App() {
     fetchReferenceLatest()
       .then(data => { setReferenceData(data); setReferenceLoading(false) })
       .catch(err => { setReferenceError(err.message); setReferenceLoading(false) })
+
+    setOvernightLoading(true)
+    setOvernightError(null)
+    fetchOvernightContext()
+      .then(data => { setOvernightData(data); setOvernightLoading(false) })
+      .catch(err => { setOvernightError(err.message); setOvernightLoading(false) })
 
     // Treasury auctions — direct from Fiscal Data API, non-blocking
     setTreasuryLoading(true)
@@ -197,6 +208,18 @@ export default function App() {
 
         {/* Active Rules — below signal log */}
         {SHOW_ALMA && almaData && <AlmaActiveRules rules={almaData.activeRules} />}
+
+        <section>
+          <div className="flex items-center gap-3 mb-3">
+            <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest">
+              Overnight Context (descriptive)
+            </h2>
+            <span className="text-[10px] text-slate-700 border border-slate-800 rounded px-1.5 py-0.5">
+              Descriptive only — not scored
+            </span>
+          </div>
+          <OvernightContextPanel data={overnightData} loading={overnightLoading} error={overnightError} />
+        </section>
 
         {/* Section 2 — Vol Surface */}
         <section>

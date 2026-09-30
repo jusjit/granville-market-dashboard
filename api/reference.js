@@ -1,8 +1,11 @@
 // Combined Reference Data API:
 // POST /api/reference — Capture VIX futures + CME FedWatch snapshots
 // GET  /api/reference — Retrieve snapshot history for browsing
+// GET  /api/reference?type=overnight — live Overnight Context
+// POST /api/reference?type=overnight&phase=morning|close — log to overnight_context_log
 
 import { createClient } from '@supabase/supabase-js'
+import { computeOvernightContext, computeRthRow, toMorningRow, ctToday } from '../lib/overnightCore.mjs'
 
 // ─── Browser-like headers to bypass basic bot detection ───────────────────────
 const BROWSER_HEADERS = {
@@ -266,6 +269,45 @@ async function handleGet(req, res, supabase) {
   }
 }
 
+// ─── Overnight Context ────────────────────────────────────────────────────────
+async function handleOvernightGet(req, res) {
+  try {
+    const ctx = await computeOvernightContext()
+    res.setHeader('Cache-Control', 's-maxage=120, stale-while-revalidate=60')
+    return res.status(200).json(ctx)
+  } catch (err) {
+    return res.status(500).json({ error: err.message })
+  }
+}
+
+async function handleOvernightPost(req, res, supabase) {
+  const phase = req.query.phase
+  const today = ctToday()
+  try {
+    if (phase === 'morning') {
+      const ctx = await computeOvernightContext()
+      if (ctx.error) return res.status(502).json({ success: false, error: ctx.error })
+      if (ctx.sessionDate !== today || !ctx.overnight) {
+        return res.status(200).json({ success: true, skipped: `no ES session for ${today} (latest ${ctx.sessionDate})` })
+      }
+      const row = toMorningRow(ctx)
+      const { error } = await supabase.from('overnight_context_log').upsert([row], { onConflict: 'session_date' })
+      if (error) throw new Error(error.message)
+      return res.status(200).json({ success: true, phase, session_date: today, provisional: ctx.gap.provisional, feed_flags: ctx.feedFlags })
+    }
+    if (phase === 'close') {
+      const row = await computeRthRow(today)
+      if (!row) return res.status(200).json({ success: true, skipped: `RTH for ${today} not available (holiday or not finished)` })
+      const { error } = await supabase.from('overnight_context_log').upsert([row], { onConflict: 'session_date' })
+      if (error) throw new Error(error.message)
+      return res.status(200).json({ success: true, phase, ...row })
+    }
+    return res.status(400).json({ error: 'phase must be morning or close' })
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message })
+  }
+}
+
 // ─── Main handler ─────────────────────────────────────────────────────────────
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate')
@@ -277,6 +319,7 @@ export default async function handler(req, res) {
   if (!url || !sbKey) return res.status(500).json({ error: 'Supabase env not configured' })
 
   const supabase = createClient(url, sbKey)
+  const overnight = req.query?.type === 'overnight'
 
   if (req.method === 'POST') {
     const secret = process.env.SNAPSHOT_SECRET
@@ -284,10 +327,11 @@ export default async function handler(req, res) {
     if ((req.headers.authorization ?? '') !== `Bearer ${secret}`) {
       return res.status(401).json({ error: 'Unauthorized' })
     }
+    if (overnight) return handleOvernightPost(req, res, supabase)
     return handlePost(req, res, supabase, fredKey)
   }
 
-  if (req.method === 'GET') return handleGet(req, res, supabase)
+  if (req.method === 'GET') return overnight ? handleOvernightGet(req, res) : handleGet(req, res, supabase)
 
   return res.status(405).json({ error: 'Method not allowed' })
 }

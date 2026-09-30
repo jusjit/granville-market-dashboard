@@ -1,0 +1,30 @@
+name: Overnight Context Log
+on:
+  schedule:
+    # 13:45 UTC = 8:45am CDT (Yahoo ES is ~10 min delayed, so the 8:30 bar exists by then)
+    # 20:15 UTC = 3:15pm CDT (RTH fill)
+    # ⚠️ DST: after Nov 1 2026 (CST) shift each +1h (14:45 / 21:15 UTC).
+    - cron: '45 13 * * 1-5'
+    - cron: '15 20 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: 'morning or close'
+        required: true
+        default: 'morning'
+
+jobs:
+  overnight-log:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log overnight context
+        run: |
+          PHASE="${{ github.event.inputs.phase }}"
+          if [ -z "$PHASE" ]; then
+            if [ "${{ github.event.schedule }}" = "45 13 * * 1-5" ]; then PHASE=morning; else PHASE=close; fi
+          fi
+          echo "phase=$PHASE"
+          curl --fail-with-body -s --retry 2 --retry-delay 20 --max-time 60 -X POST \
+            "https://private-market-dashboard.vercel.app/api/reference?type=overnight&phase=$PHASE" \
+            -H "Authorization: Bearer ${{ secrets.SNAPSHOT_SECRET }}" \
+            -w "\nHTTP %{http_code}\n"

@@ -149,6 +149,18 @@ Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX
 - `s-maxage=120` on GET; no cache on POST.
 - **middleware.js**: both `/api/reference` and `/api/vol-history` are in `OPEN_PATHS` (added after cron exit-code-22 failures — any new cron endpoint must be added here or the private project's Edge middleware will 401 it before the function runs).
 
+### Overnight Context (`lib/overnightCore.mjs`, routed via `api/reference.js?type=overnight`)
+- Descriptive only — no signals/scores. Logic in `lib/` (not a Vercel function; same pattern as `lib/volSurfaceCore.mjs`).
+- GET `/api/reference?type=overnight` → live context (`s-maxage=120`). POST `?type=overnight&phase=morning|close` (Bearer SNAPSHOT_SECRET) → upserts `overnight_context_log` (PK `session_date`). SQL in the `lib/overnightCore.mjs` header.
+- **Data: Yahoo chart endpoint only** — `ES=F` 5m bars, 60d, `includePrePost=true` (~10 min delayed, continuous front month; null bars = 4–5pm CT halt + closed days); `^N225 ^HSI ^GDAXI ^STOXX50E ^VIX` daily (~15 min delayed). Massive (ex-Polygon) Futures Starter $29/mo is the planned upgrade if Yahoo rate-limits.
+- All times America/Chicago. Session date of a bar: ≥5:00pm CT → next weekday. Overnight = bars of session D before 8:30 CT; RTH = 8:30–15:00 CT on D. Prior RTH = latest earlier session with RTH bars (handles holidays); half-day detected when the last RTH bar starts before 14:55.
+- Gap = ES@8:30 (open of the 8:30 bar; provisional = latest price before then) − prior RTH close. σ = (prior VIX close/100)/√252 × prior close. Labels: flat <0.25σ, moderate ≤0.75σ, large >0.75σ.
+- Timing split has 4 segments summing exactly to the gap: post-close (prior close → 5pm reopen), Asia 5pm–1am, Europe 1am–7:30am, pre-open 7:30–8:30.
+- Range position: inside / above / below / outside (both sides) vs prior RTH H/L.
+- Foreign indices: return vs prior close, z vs own trailing 60 daily-return stdev, flag |z|>1.5, agrees/disagrees with ES direction (n/a when ES gap is flat). Status `closed` (no session for D) vs `not_open` vs `intraday` vs `missing`. Europe is mid-session at 8:30 CT (partial return vs full-day stdev).
+- Feed flags: `es_stale` (>25 min old while Globex open), `*_missing`, `*_stale`. Roll-week flag from 9 days before the quarterly 3rd-Friday expiry.
+- Cron: `.github/workflows/overnight-context.yml` — 13:45 UTC (8:45am CDT, morning row) and 20:15 UTC (3:15pm CDT, RTH fill). ⚠️ DST: after Nov 1 2026 shift to 14:45/21:15 UTC. No statistics computed yet by design.
+
 ### `api/login.js` + `middleware.js` (private dashboard password gate)
 - Edge middleware at repo root; enforces ONLY when `DASHBOARD_PASSWORD` env is set (private project). Public project unaffected.
 - Cookie `dashboard_auth` = SHA-256(password), 30 days. Login page: `/login` (LoginGate.jsx in the SPA).
@@ -165,6 +177,7 @@ Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX
 
 ## Dashboard Sections (in order)
 1. **Alma Centroid** — private dashboard only (`VITE_SHOW_ALMA=true`). Layout: Daily centroid card (violet, centroid value + sigma distance from spot + touch %, pivots/targets each with sigma distance + directional touch probability, sigma bands grid with symbol switcher) → Live SPX Reference (SPX Last, Prev Close, Open, Gap from Centroid, VIX Gap) → Weekly levels card → Alma Signal Log → Active Rules (`AlmaActiveRules`, exported from AlmaPanel, rendered in App.jsx after AlmaLog). Touch probabilities are from backtest (`sigma_touch_decay` / `intraday_pivot_touch`), split by upside (n=210) and downside (n=215) — downside has fatter tails (26.2% at 2-3σ vs 12.5% upside). Sigma distance measured from SPX open using half the 1σ band width as the vol unit.
+1b. **Overnight Context (descriptive)** — ES overnight OHLC/range/volume vs 20d, gap in pts/σ, range position, timing split, foreign-index spillover z-scores, one-line summary, feed timestamps + stale/missing chips. Both dashboards.
 2. **Vol Surface** — SPX term structure, Tradier/ORATS options data. Has its own Refresh button (re-fetches live data without refreshing the full dashboard) + Compare snapshot toggle for historical overlay.
 3. **AI Synthesis** — indigo panel, gemini-2.5-flash via 1min.ai, updates on refresh
 4. **Granville Composite** — Recharts half-circle gauge (0–100)

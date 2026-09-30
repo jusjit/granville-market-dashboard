@@ -20,3 +20,10 @@ export async function fetchReferenceLatest() {
     fed: snap.fed ? { rates: snap.fed.rates }  : null,
   }
 }
+
+export async function fetchOvernightContext() {
+  const r = await fetch('/api/reference?type=overnight')
+  const data = await r.json().catch(() => ({}))
+  if (!r.ok) throw new Error(data.error ?? `Overnight context: HTTP ${r.status}`)
+  return data
+}
