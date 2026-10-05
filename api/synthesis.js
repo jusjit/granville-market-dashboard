@@ -127,36 +127,69 @@ async function callOneMin(prompt, key) {
 
 // ── Treasury auction synthesis (id=2 in synthesis_cache) ──
 
-function hashTreasuryInputs(auctions) {
-  return JSON.stringify(auctions.map(a => `${a.auctionDate}:${a.cusip}`).sort())
+// Payload = summaryPayload() from src/lib/treasuryMetrics.js. Hashing the whole payload
+// means a new auction, a WI entry, or a changed baseline all regenerate the summary.
+function hashTreasuryInputs(payload) {
+  return `v2:${JSON.stringify(payload)}`
 }
 
-function buildTreasuryPrompt(auctions) {
-  const lines = auctions.map(a => {
-    const tail = a.tail != null ? `${a.tail > 0 ? '+' : ''}${(a.tail * 100).toFixed(1)}bp tail` : 'no tail data'
-    const btc = a.bidToCover != null ? `${a.bidToCover.toFixed(2)}x bid/cover` : 'no bid/cover'
-    const indirect = a.indirectPct != null ? `${a.indirectPct}% indirect` : ''
-    const direct = a.directPct != null ? `${a.directPct}% direct` : ''
-    const dealer = a.dealerPct != null ? `${a.dealerPct}% dealer` : ''
-    const size = a.offeringAmt != null ? `$${(a.offeringAmt / 1e9).toFixed(0)}B` : ''
-    const yld = a.highYield != null ? `${a.highYield.toFixed(3)}%` : 'pending'
-    return `  ${a.auctionDate} ${a.securityTerm}: ${yld}, ${tail}, ${btc}, ${indirect}, ${direct}, ${dealer} ${size}`
-  }).join('\n')
+const METRIC_FMT = {
+  bidToCover: ['bid/cover', v => `${v.toFixed(2)}x`, d => d.toFixed(2)],
+  dispersionBp: ['dispersion', v => `${v.toFixed(1)}bp`, d => `${d.toFixed(1)}bp`],
+  tailBp: ['tail vs WI', v => `${v.toFixed(1)}bp`, d => `${d.toFixed(1)}bp`],
+  directPct: ['direct', v => `${v.toFixed(1)}%`, d => `${d.toFixed(1)}pp`],
+  indirectPct: ['indirect', v => `${v.toFixed(1)}%`, d => `${d.toFixed(1)}pp`],
+  dealerPct: ['dealer', v => `${v.toFixed(1)}%`, d => `${d.toFixed(1)}pp`],
+  endUserPct: ['direct+indirect', v => `${v.toFixed(1)}%`, d => `${d.toFixed(1)}pp`],
+}
 
-  return `You are a fixed-income analyst explaining recent Treasury auction results to a macro trader who is still building intuition for how to read auctions. Write 3-4 sentences that both summarize AND teach — don't just state facts, explain what they mean and why they matter.
+function metricText(key, m) {
+  const [label, fv, fd] = METRIC_FMT[key]
+  if (m.value == null) return `${label} n/a`
+  if (!m.n) return `${label} ${fv(m.value)} (no baseline)`
+  return `${label} ${fv(m.value)} (avg ${fv(m.baselineAvg)}, Δ ${m.delta > 0 ? '+' : ''}${fd(m.delta)}, n=${m.n}, ${m.read})`
+}
 
-INTERPRETATION FRAMEWORK — buyers matter more than the rating:
-- The "tail" is the gap between where the market was trading before the auction and where the Treasury had to price it. A negative tail means buyers paid up (strong demand). A positive tail of 2bp+ means the Treasury had to discount to find buyers (weak). These auctions are consistently tailing +4-6bp — that's the market saying "we'll take your paper, but only at a discount."
-- Bid-to-cover is total bids divided by bonds sold. Above 2.5x is healthy competition; below 2.45x means thin interest. But bid-to-cover can be misleading — a 2.7x ratio looks fine until you see WHO bid: if dealers (primary dealers are required to bid) absorbed 12%+ of the auction, that means real buyers didn't show up and dealers got stuck with inventory they'll need to offload.
-- Indirect bidders = foreign central banks + large institutions (Japan, China, sovereign wealth funds). Above 70% indirect share is strong global demand; below 65% is soft. Japan has been selling Treasuries to fund yen intervention, and China is gradually reducing holdings — so watch this number for structural shifts.
-- Direct bidders = domestic funds bidding directly. Dealer share = what primary dealers absorbed (the leftovers nobody else wanted). Under 10% dealer share is good; over 12% is a red flag.
+function buildTreasuryPrompt({ evidence = [], tailAvailable, flagged = [], next }) {
+  const lines = evidence.map(e =>
+    `  ${e.tenor} ${e.date}${e.reopening ? ' (reopening)' : ''}: high yield ${e.highYield?.toFixed(3)}%; ` +
+    Object.keys(METRIC_FMT).filter(k => k !== 'tailBp' || tailAvailable).map(k => metricText(k, e.metrics[k])).join('; ')
+  ).join('\n')
+  const flaggedText = flagged.length
+    ? flagged.map(f => `  ${f.date} ${f.tenor}: ${f.issues.join('; ')}`).join('\n')
+    : '  none'
+  const nextText = next
+    ? `${next.date} ${next.tenor}${next.reopening ? ' reopening' : ''}${next.sizeBn != null ? ` $${next.sizeBn.toFixed(0)}B` : ''}`
+    : 'none announced yet'
 
-YOUR JOB: Explain the recent pattern like you're teaching someone to read these auctions. Connect the dots between tail, indirect share, and dealer absorption. Say what's healthy and what's concerning, and why. Use specific numbers from the data.
+  return `You write a short descriptive read of recent US Treasury nominal coupon auctions for a trader who is still learning to read them. Use ONLY the computed fields below. Do not cite any number that does not appear in them.
 
-If a very recent auction has no results yet (pending), note it's upcoming. Write in plain prose, no bullets, no headers.
+DEFINITIONS
+- dispersion = high yield − median yield. It is ≥ 0 by construction and measures bid spread, not weakness. Never call it a tail and never use it as evidence of weak or strong demand.
+- tail vs WI = high yield − when-issued yield at the 1pm deadline (positive = weak, negative = stop-through). ${tailAvailable ? 'Only cite it for tenors where it is present.' : 'It is NOT available for any auction: say plainly that the tail is unavailable, and do not use the word "tail" for anything else.'}
+- Bidder shares are % of competitive accepted. Indirect = bids placed through a dealer: asset managers, funds and foreign official accounts alike. Never describe indirect share as foreign demand. Dealer = the residual primary dealers had to take. direct+indirect = combined end-user take; a move between direct and indirect is not lost demand.
+- avg = trailing average over n prior same-tenor auctions (max 6); Δ = value − avg; the last word (better / worse / inline / neutral) is the pre-computed read. neutral = a bucket shift that is not graded on its own.
 
-RECENT MARKET-MOVING TREASURY AUCTIONS (newest first):
+RULES
+- Every weak/strong/soft/firm claim must name the tenor, the metric, its Δ and n (e.g. "7Y bid/cover 2.42x, −0.08 vs its 6-auction average, n=6"). Base these claims on bid/cover, dealer and direct+indirect only (the graded metrics).
+- Treat n < 3 as thin evidence and say so.
+- If a tenor's metrics point in different directions (e.g. indirect down but direct up, or bid/cover lower while direct+indirect is higher), call it mixed.
+- Descriptive only, no trade recommendations. Plain prose, no bullets or headers.
+
+FORMAT — exactly 5 sentences, 150 words maximum in total:
+1. The overall read in one clause.
+2. Tenors that support a weaker-demand read, each with its evidence.
+3. Tenors that contradict it, each with its evidence.
+4. Mixed or thin evidence, plus ${tailAvailable ? 'any WI-based tail values' : 'a plain statement that the tail vs WI is unavailable'}.
+5. What the next scheduled auction will show — what to watch, not a prediction.
+
+LATEST CLEAN AUCTION PER TENOR
 ${lines}
+
+EXCLUDED FOR DATA-QUALITY FLAGS
+${flaggedText}
+
+NEXT SCHEDULED COUPON AUCTION (official announcement): ${nextText}
 
 Write the summary now:`
 }
@@ -167,15 +200,14 @@ async function handleTreasury(req, res) {
   let body
   try { body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body }
   catch { return res.status(400).json({ error: 'Invalid JSON body' }) }
-  const { auctions } = body
-  if (!auctions?.length) return res.status(400).json({ error: 'auctions array required' })
+  if (!Array.isArray(body?.evidence) || !body.evidence.length) return res.status(400).json({ error: 'evidence array required' })
 
-  const currentHash = hashTreasuryInputs(auctions)
+  const currentHash = hashTreasuryInputs(body)
   const cached = await cacheRead(2)
   if (cached?.paragraph && cached.input_hash === currentHash) {
     return res.status(200).json({ paragraph: cached.paragraph, cached: true })
   }
-  const prompt = buildTreasuryPrompt(auctions)
+  const prompt = buildTreasuryPrompt(body)
   try {
     const { text: trimmed } = await callOneMin(prompt, key)
     await cacheWrite(trimmed, currentHash, 2)

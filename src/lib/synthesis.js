@@ -12,11 +12,12 @@ export async function fetchSynthesis(granvilleData, macroData) {
   return data.paragraph
 }
 
-export async function fetchTreasurySynthesis(auctions) {
+// payload = summaryPayload() from treasuryMetrics (computed fields + baselines only)
+export async function fetchTreasurySynthesis(payload) {
   const res = await fetch('/api/synthesis?type=treasury', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ auctions }),
+    body: JSON.stringify(payload),
   })
   if (!res.ok) {
     const data = await res.json().catch(() => ({}))
