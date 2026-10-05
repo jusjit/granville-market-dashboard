@@ -1,14 +1,12 @@
 import { useState, useEffect } from 'react'
 import { fetchTreasurySynthesis } from '../lib/synthesis'
-import { saveWiYield } from '../lib/treasury'
-import { METRICS, assess, summaryPayload, wiKey, BASELINE_N } from '../lib/treasuryMetrics'
+import { METRICS, assess, summaryPayload, rowKey, BASELINE_N } from '../lib/treasuryMetrics'
 
 const M = Object.fromEntries(METRICS.map(m => [m.key, m]))
 
 // Column definitions shown as header tooltips. Indirect is deliberately NOT called foreign.
 const DEFS = {
-  dispersionBp: 'High yield − median yield. High yield is the stop-out (worst accepted bid), so this is ≥ 0 by construction. It measures how spread out accepted bids were, not auction weakness.',
-  tailBp: 'High yield − when-issued (WI) yield at the 1pm bid deadline. Positive = priced cheaper than the market expected (weak); negative = stop-through (strong). Treasury does not publish WI yields: "—" means no WI value has been entered. Never estimated.',
+  dispersionBp: 'High yield − median yield. High yield is the stop-out (worst accepted bid), so this is ≥ 0 by construction. It measures how spread out accepted bids were, not auction weakness. This is not the auction tail (high yield vs when-issued yield), which is omitted because WI yields are not available.',
   bidToCover: 'Total tendered ÷ total accepted. Judged only against the same tenor’s baseline — the 3Y structurally runs higher than the 5Y/7Y.',
   directPct: 'Direct bidders’ share of competitive accepted (denominator = competitive accepted; direct + indirect + dealer = 100%). Domestic accounts bidding for their own book.',
   indirectPct: 'Indirect bidders’ share of competitive accepted. Bids placed through a dealer: asset managers, funds and foreign official accounts alike — NOT a measure of foreign demand.',
@@ -38,7 +36,6 @@ function fmtAmt(amt) {
 const FMT = {
   bidToCover: { v: x => `${x.toFixed(2)}x`, d: x => x.toFixed(2) },
   dispersionBp: { v: x => `${x.toFixed(1)}bp`, d: x => x.toFixed(1) },
-  tailBp: { v: x => `${x > 0 ? '+' : ''}${x.toFixed(1)}bp`, d: x => x.toFixed(1) },
   pct: { v: x => `${x.toFixed(1)}%`, d: x => x.toFixed(1) },
 }
 const fmtFor = key => FMT[key] ?? FMT.pct
@@ -60,40 +57,6 @@ function MetricCell({ row, mkey }) {
       <span className={`text-[9px] ${read ? READ_CLASS[read] : 'text-slate-600'}`}>
         {b.n ? `${delta > 0 ? '+' : ''}${f.d(delta)} · n${b.n}` : 'no base'}
       </span>
-    </span>
-  )
-}
-
-function TailCell({ row, editable, editing, onEdit, onSave, onCancel, draft, setDraft, saving, error }) {
-  if (editing) {
-    return (
-      <span className="inline-flex flex-col items-end gap-0.5">
-        <span className="inline-flex items-center gap-1">
-          <input
-            autoFocus
-            value={draft}
-            onChange={e => setDraft(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') onSave(); if (e.key === 'Escape') onCancel() }}
-            placeholder="WI %"
-            className="w-16 rounded bg-slate-950 border border-slate-700 px-1 py-0.5 text-right text-[11px] text-slate-200"
-          />
-          <button onClick={onSave} disabled={saving} className="text-[10px] text-sky-400 hover:text-sky-300">save</button>
-          <button onClick={onCancel} className="text-[10px] text-slate-500 hover:text-slate-300">×</button>
-        </span>
-        {error && <span className="text-[9px] text-red-400 max-w-[11rem] text-right">{error}</span>}
-      </span>
-    )
-  }
-  return (
-    <span className="inline-flex items-center justify-end gap-1">
-      {row.tailBp != null
-        ? <span title={`WI ${row.wiYield.toFixed(3)}% (${row.wiSource}) at 1pm`}><MetricCell row={row} mkey="tailBp" /></span>
-        : <span className="text-slate-600" title="No WI yield entered — tail unavailable">—</span>}
-      {editable && (
-        <button onClick={onEdit} className="text-[9px] text-sky-500 hover:text-sky-300" title="Enter the WI yield at the 1pm bid deadline">
-          {row.tailBp != null ? 'edit' : '+WI'}
-        </button>
-      )}
     </span>
   )
 }
@@ -126,7 +89,7 @@ function ExcludedTable({ rows }) {
             </thead>
             <tbody>
               {rows.map(r => (
-                <tr key={wiKey(r.cusip, r.auctionDate)} className="border-t border-slate-800/40 text-slate-400">
+                <tr key={rowKey(r.cusip, r.auctionDate)} className="border-t border-slate-800/40 text-slate-400">
                   <td className="py-1 pr-2">{fmtDate(r.auctionDate)}</td>
                   <td className="py-1 pr-2">{r.kind === 'tips' ? 'TIPS' : 'FRN'}</td>
                   <td className="py-1 pr-2">{r.securityTerm}</td>
@@ -148,13 +111,9 @@ function ExcludedTable({ rows }) {
   )
 }
 
-export default function TreasuryAuctionPanel({ data, loading, error, onReload }) {
+export default function TreasuryAuctionPanel({ data, loading, error }) {
   const [summary, setSummary] = useState(null)
   const [summaryLoading, setSummaryLoading] = useState(false)
-  const [editingKey, setEditingKey] = useState(null)
-  const [draft, setDraft] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [editError, setEditError] = useState(null)
 
   useEffect(() => {
     if (!data?.allCoupons?.length) return
@@ -180,28 +139,6 @@ export default function TreasuryAuctionPanel({ data, loading, error, onReload })
   }
   if (!data?.coupons?.length) return null
 
-  const startEdit = r => {
-    setEditingKey(wiKey(r.cusip, r.auctionDate))
-    setDraft(r.wiYield != null ? String(r.wiYield) : '')
-    setEditError(null)
-  }
-  const save = async r => {
-    const trimmed = draft.trim()
-    const wi = trimmed === '' ? null : Number(trimmed)
-    if (wi !== null && (!Number.isFinite(wi) || wi <= 0 || wi >= 20)) return setEditError('Enter a yield in percent, e.g. 4.812 (blank clears)')
-    if (wi !== null && Math.abs(wi - r.highYield) > 0.25) return setEditError(`WI is ${(Math.abs(wi - r.highYield) * 100).toFixed(0)}bp from the high yield — check the value`)
-    setSaving(true)
-    try {
-      await saveWiYield(r.cusip, r.auctionDate, wi)
-      setEditingKey(null)
-      onReload?.()
-    } catch (err) {
-      setEditError(err.message)
-    } finally {
-      setSaving(false)
-    }
-  }
-
   const next = data.next
   const flaggedCount = data.coupons.filter(r => r.flags.length).length
 
@@ -221,10 +158,9 @@ export default function TreasuryAuctionPanel({ data, loading, error, onReload })
             : 'Next coupon auction not yet announced'}
         </p>
       </div>
-      {(data.wiError || flaggedCount > 0) && (
+      {flaggedCount > 0 && (
         <div className="flex gap-2 flex-wrap mb-2">
           {flaggedCount > 0 && <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold border text-amber-300 bg-amber-950/30 border-amber-900/50">{flaggedCount} row{flaggedCount > 1 ? 's' : ''} failed data checks — excluded from baselines</span>}
-          {data.wiError && <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold border text-slate-400 bg-slate-900/50 border-slate-700/50">WI yields unavailable: {data.wiError}</span>}
         </div>
       )}
       <div className="overflow-x-auto">
@@ -236,7 +172,6 @@ export default function TreasuryAuctionPanel({ data, loading, error, onReload })
               <Th>Size</Th>
               <Th>High Yield</Th>
               <Th def={DEFS.dispersionBp}>Dispersion (high − median)</Th>
-              <Th def={DEFS.tailBp}>Tail vs WI</Th>
               <Th def={DEFS.bidToCover}>Bid/Cover</Th>
               <Th def={DEFS.directPct}>Direct</Th>
               <Th def={DEFS.indirectPct}>Indirect</Th>
@@ -247,7 +182,7 @@ export default function TreasuryAuctionPanel({ data, loading, error, onReload })
           </thead>
           <tbody>
             {data.coupons.map(r => {
-              const k = wiKey(r.cusip, r.auctionDate)
+              const k = rowKey(r.cusip, r.auctionDate)
               const flagged = r.flags.length > 0
               return (
                 <tr key={k} className={`border-t border-slate-800/40 hover:bg-slate-800/20 align-top ${flagged ? 'opacity-60' : ''}`}>
@@ -258,13 +193,6 @@ export default function TreasuryAuctionPanel({ data, loading, error, onReload })
                   <td className="py-1 pr-2 text-slate-400 text-right">{fmtAmt(r.offeringAmt)}</td>
                   <td className="py-1 pr-2 text-slate-200 text-right">{r.highYield != null ? `${r.highYield.toFixed(3)}%` : '—'}</td>
                   <td className="py-1 pr-2 text-right"><MetricCell row={r} mkey="dispersionBp" /></td>
-                  <td className="py-1 pr-2 text-right">
-                    <TailCell
-                      row={r} editable={data.wiEditable && r.highYield != null} editing={editingKey === k}
-                      onEdit={() => startEdit(r)} onSave={() => save(r)} onCancel={() => setEditingKey(null)}
-                      draft={draft} setDraft={setDraft} saving={saving} error={editError}
-                    />
-                  </td>
                   <td className="py-1 pr-2 text-right"><MetricCell row={r} mkey="bidToCover" /></td>
                   <td className="py-1 pr-2 text-right"><MetricCell row={r} mkey="directPct" /></td>
                   <td className="py-1 pr-2 text-right"><MetricCell row={r} mkey="indirectPct" /></td>

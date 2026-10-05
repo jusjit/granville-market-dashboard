@@ -4,10 +4,8 @@
 // Interpretation rules (mirrored in UI tooltips and the LLM prompt):
 // - Dispersion = high yield − median yield. High yield is the stop-out (worst
 //   accepted bid), so this is ≥ 0 by construction: it measures bid spread, NOT weakness.
-// - Tail = high yield − when-issued (WI) yield at the 1pm bid deadline. Positive =
-//   priced cheaper than the market expected (weak); negative = stop-through (strong).
-//   Treasury does not publish WI yields; tail is null unless a WI value is supplied.
-//   Never estimate it.
+//   It is not the auction "tail" (high − when-issued yield at 1pm). WI yields aren't
+//   published and aren't available to this dashboard, so the tail is deliberately omitted.
 // - Indirect bidders are NOT "foreign buyers": they include asset managers, funds and
 //   anyone bidding through a dealer, as well as foreign official accounts.
 // - Dealer share is the residual primary dealers had to take; it only means something
@@ -28,7 +26,6 @@ const BUCKET_TOLERANCE = 0.005
 export const METRICS = [
   { key: 'bidToCover', label: 'Bid/Cover', better: 'higher', tol: 0.05, digits: 2 },
   { key: 'dispersionBp', label: 'Dispersion', better: null, tol: 0.5, digits: 1 },
-  { key: 'tailBp', label: 'Tail vs WI', better: 'lower', tol: 0.5, digits: 1 },
   { key: 'directPct', label: 'Direct', better: null, tol: 1.5, digits: 1 },
   { key: 'indirectPct', label: 'Indirect', better: null, tol: 1.5, digits: 1 },
   { key: 'dealerPct', label: 'Dealer', better: 'lower', tol: 1.5, digits: 1 },
@@ -41,7 +38,7 @@ export function num(v) {
   return Number.isFinite(n) ? n : null
 }
 
-export function wiKey(cusip, auctionDate) {
+export function rowKey(cusip, auctionDate) {
   return `${cusip}|${auctionDate}`
 }
 
@@ -90,11 +87,6 @@ export function dispersionBp(a) {
   return (a.highYield - a.medianYield) * 100
 }
 
-export function tailBp(highYield, wiYield) {
-  if (highYield == null || wiYield == null) return null
-  return (highYield - wiYield) * 100
-}
-
 export function bucketShares(a) {
   const d = a.compAccepted
   const empty = { denominator: 'comp_accepted', directPct: null, indirectPct: null, dealerPct: null, endUserPct: null, bucketSumRatio: null }
@@ -138,7 +130,7 @@ function avg(values) {
 }
 
 // Trailing same-tenor baseline from up to BASELINE_N prior clean auctions.
-// Each metric carries its own n (e.g. tail only counts auctions with a WI value).
+// Each metric carries its own n (auctions missing that field don't count).
 export function computeBaseline(priorClean) {
   const window = priorClean.slice(-BASELINE_N)
   const baseline = {}
@@ -155,8 +147,7 @@ export function assess(metric, delta) {
 }
 
 // rawRows: Fiscal Data records (any order, any security type).
-// wiByKey: { [wiKey(cusip, date)]: { yield, source } }.
-export function buildAuctionTable(rawRows, { wiByKey = {}, today }) {
+export function buildAuctionTable(rawRows, { today }) {
   const all = rawRows.map(normalizeAuction)
   const done = all.filter(a => a.completed || a.auctionDate < today)
   const upcoming = all
@@ -179,15 +170,7 @@ export function buildAuctionTable(rawRows, { wiByKey = {}, today }) {
     rows.sort((a, b) => a.auctionDate.localeCompare(b.auctionDate))
     const clean = []
     for (const a of rows) {
-      const wi = wiByKey[wiKey(a.cusip, a.auctionDate)] ?? null
-      const row = {
-        ...a,
-        ...bucketShares(a),
-        dispersionBp: dispersionBp(a),
-        wiYield: wi?.yield ?? null,
-        wiSource: wi?.source ?? null,
-        tailBp: tailBp(a.highYield, wi?.yield ?? null),
-      }
+      const row = { ...a, ...bucketShares(a), dispersionBp: dispersionBp(a) }
       row.flags = validateRow(row, clean.at(-1) ?? null)
       row.baseline = computeBaseline(clean)
       row.deltas = {}
@@ -229,7 +212,6 @@ export function summaryPayload({ allCoupons, coupons, next }) {
   }))
   return {
     evidence,
-    tailAvailable: evidence.some(e => e.metrics.tailBp.value != null),
     flagged: coupons.filter(r => r.flags.length).map(r => ({ date: r.auctionDate, tenor: r.tenorLabel, issues: r.flags.map(f => f.message) })),
     next: next ? { date: next.auctionDate, tenor: next.tenorLabel, reopening: next.reopening, sizeBn: next.offeringAmt != null ? next.offeringAmt / 1e9 : null } : null,
   }

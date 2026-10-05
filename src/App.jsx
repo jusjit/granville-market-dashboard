@@ -321,10 +321,7 @@ export default function App() {
           <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">
             Treasury Auctions
           </h2>
-          <TreasuryAuctionPanel
-            data={treasuryData} loading={treasuryLoading} error={treasuryError}
-            onReload={() => fetchTreasuryAuctions().then(setTreasuryData).catch(err => setTreasuryError(err.message))}
-          />
+          <TreasuryAuctionPanel data={treasuryData} loading={treasuryLoading} error={treasuryError} />
         </section>
 
         {/* Reference Data — VIX Futures + CME FedWatch (collapsible) */}

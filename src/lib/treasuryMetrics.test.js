@@ -1,8 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  classify, normalizeAuction, dispersionBp, tailBp, bucketShares, validateRow,
-  computeBaseline, buildAuctionTable, latestByTenor, assess, METRICS, wiKey, summaryPayload,
+  classify, normalizeAuction, dispersionBp, bucketShares, validateRow,
+  computeBaseline, buildAuctionTable, latestByTenor, assess, METRICS, summaryPayload,
 } from './treasuryMetrics.js'
 
 // Real Fiscal Data rows (fields trimmed to what the module reads).
@@ -52,17 +52,10 @@ test('reopenings map to their original tenor', () => {
   assert.equal(a.reopening, true)
 })
 
-test('dispersion is high − median in bp and never uses WI', () => {
+test('dispersion is high − median in bp', () => {
   const a = normalizeAuction(NOTE_7Y_0924)
   assert.ok(Math.abs(dispersionBp(a) - 6.6) < 1e-9)
   assert.equal(dispersionBp({ highYield: 4.5, medianYield: null }), null)
-})
-
-test('tail is high − WI in bp; null without a WI value', () => {
-  assert.ok(Math.abs(tailBp(5.085, 5.07) - 1.5) < 1e-9)
-  assert.ok(Math.abs(tailBp(5.085, 5.095) - (-1.0)) < 1e-9)
-  assert.equal(tailBp(5.085, null), null)
-  assert.equal(tailBp(null, 5.0), null)
 })
 
 test('bucket shares use competitive accepted and sum to 100%', () => {
@@ -108,13 +101,13 @@ test('validation passes a normal auction and catches impossible / incomplete row
 })
 
 test('baseline averages up to 6 prior auctions and reports n', () => {
-  const mk = btc => ({ bidToCover: btc, dispersionBp: 5, tailBp: null, directPct: 20, indirectPct: 65, dealerPct: 15, endUserPct: 85 })
+  const mk = btc => ({ bidToCover: btc, dispersionBp: null, directPct: 20, indirectPct: 65, dealerPct: 15, endUserPct: 85 })
   const eight = [2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8].map(mk)
   const b = computeBaseline(eight)
   assert.equal(b.bidToCover.n, 6)
   assert.ok(Math.abs(b.bidToCover.avg - 2.55) < 1e-9) // last six: 2.3…2.8
-  assert.equal(b.tailBp.n, 0)
-  assert.equal(b.tailBp.avg, null)
+  assert.equal(b.dispersionBp.n, 0) // metrics missing a value don't count toward n
+  assert.equal(b.dispersionBp.avg, null)
 })
 
 test('baseline with fewer than six priors uses what exists; none → null', () => {
@@ -151,28 +144,26 @@ test('buildAuctionTable excludes TIPS/FRN, keeps reopenings, and finds the next 
   assert.equal(t.next.tenor, '3-Year')
 })
 
-test('buildAuctionTable merges WI yields into tail and keeps flagged rows out of baselines', () => {
+test('buildAuctionTable keeps flagged rows out of baselines', () => {
   const prior10 = { ...REOPEN_10Y_0909, cusip: 'P1', auction_date: '2026-08-12', security_term: '10-Year', reopening: 'No', bid_to_cover_ratio: '2.53' }
   const badMid = { ...REOPEN_10Y_0909, cusip: 'P2', auction_date: '2026-08-20', high_yield: '2.40', avg_med_yield: '2.30' }
-  const wiByKey = { [wiKey('91282C10Y8', '2026-09-09')]: { yield: 4.82, source: 'manual' } }
-  const t = buildAuctionTable([prior10, badMid, REOPEN_10Y_0909], { today: '2026-10-04', wiByKey })
+  const t = buildAuctionTable([prior10, badMid, REOPEN_10Y_0909], { today: '2026-10-04' })
   const [latest, flagged, first] = t.coupons
   assert.ok(flagged.flags.some(f => f.code === 'yield_jump'))
-  assert.ok(Math.abs(latest.tailBp - 1.4) < 1e-9)
+  assert.equal(latest.tailBp, undefined)
   assert.equal(latest.baseline.bidToCover.n, 1) // flagged 08/20 row excluded
   assert.ok(Math.abs(latest.deltas.bidToCover - (2.71 - 2.53)) < 1e-9)
   assert.equal(first.baseline.bidToCover.n, 0)
   assert.equal(latestByTenor(t.coupons)[0].auctionDate, '2026-09-09')
 })
 
-test('summaryPayload exposes only computed fields and marks tail unavailable without WI', () => {
+test('summaryPayload exposes only computed fields', () => {
   const upcoming = row({ cusip: 'NEXT00001', auction_date: '2026-10-07', security_term: '9-Year 10-Month', original_security_term: '10-Year', reopening: 'Yes', high_yield: null, bid_to_cover_ratio: null, offering_amt: '39000000000' })
   const t = buildAuctionTable([TIPS_10Y_0723, NOTE_7Y_0924, REOPEN_10Y_0909, upcoming], { today: '2026-10-04' })
   const p = summaryPayload({ ...t, allCoupons: t.coupons })
-  assert.equal(p.tailAvailable, false)
   assert.deepEqual(p.evidence.map(e => e.tenor), ['7Y', '10Y'])
   assert.deepEqual(Object.keys(p.evidence[0].metrics), METRICS.map(m => m.key))
-  assert.equal(p.evidence[0].metrics.tailBp.value, null)
+  assert.ok(!('tailBp' in p.evidence[0].metrics))
   assert.equal(p.evidence[0].metrics.bidToCover.n, 0)
   assert.deepEqual(p.next, { date: '2026-10-07', tenor: '10Y', reopening: true, sizeBn: 39 })
   assert.ok(!JSON.stringify(p).includes('TIPS'))

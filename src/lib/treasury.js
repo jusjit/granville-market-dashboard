@@ -45,38 +45,16 @@ async function fetchRawAuctions() {
   return entry
 }
 
-export async function fetchWiYields() {
-  try {
-    const r = await fetch('/api/synthesis?type=wi')
-    if (!r.ok) return { values: {}, editable: false, error: `WI yields: HTTP ${r.status}` }
-    return await r.json()
-  } catch (err) {
-    return { values: {}, editable: false, error: err.message }
-  }
-}
-
-export async function saveWiYield(cusip, auctionDate, wiYield) {
-  const r = await fetch('/api/synthesis?type=wi', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ cusip, auctionDate, wiYield }),
-  })
-  const data = await r.json().catch(() => ({}))
-  if (!r.ok) throw new Error(data.error ?? `HTTP ${r.status}`)
-}
-
 export async function fetchTreasuryAuctions() {
-  const [{ rows, fetchedAt }, wi] = await Promise.all([fetchRawAuctions(), fetchWiYields()])
+  const { rows, fetchedAt } = await fetchRawAuctions()
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
-  const table = buildAuctionTable(rows, { wiByKey: wi.values ?? {}, today })
+  const table = buildAuctionTable(rows, { today })
   const cutoff = daysAgo(DISPLAY_DAYS)
   return {
     ...table,
     coupons: table.coupons.filter(r => r.auctionDate >= cutoff),
     excluded: table.excluded.filter(r => r.auctionDate >= cutoff),
     allCoupons: table.coupons,
-    wiEditable: !!wi.editable,
-    wiError: wi.error ?? null,
     fetchedAt,
   }
 }

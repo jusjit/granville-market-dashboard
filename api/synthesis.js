@@ -1,6 +1,3 @@
-import { createClient } from '@supabase/supabase-js'
-import { getWiYields, validateWiInput, saveWiYield } from '../lib/treasuryWi.mjs'
-
 // Persistent cache in Supabase (synthesis_cache, single row id=1) — survives
 // serverless cold starts. Regenerate only when older than TTL or when the
 // signal states change.
@@ -128,7 +125,7 @@ async function callOneMin(prompt, key) {
 // ── Treasury auction synthesis (id=2 in synthesis_cache) ──
 
 // Payload = summaryPayload() from src/lib/treasuryMetrics.js. Hashing the whole payload
-// means a new auction, a WI entry, or a changed baseline all regenerate the summary.
+// means a new auction or a changed baseline regenerates the summary.
 function hashTreasuryInputs(payload) {
   return `v2:${JSON.stringify(payload)}`
 }
@@ -136,7 +133,6 @@ function hashTreasuryInputs(payload) {
 const METRIC_FMT = {
   bidToCover: ['bid/cover', v => `${v.toFixed(2)}x`, d => d.toFixed(2)],
   dispersionBp: ['dispersion', v => `${v.toFixed(1)}bp`, d => `${d.toFixed(1)}bp`],
-  tailBp: ['tail vs WI', v => `${v.toFixed(1)}bp`, d => `${d.toFixed(1)}bp`],
   directPct: ['direct', v => `${v.toFixed(1)}%`, d => `${d.toFixed(1)}pp`],
   indirectPct: ['indirect', v => `${v.toFixed(1)}%`, d => `${d.toFixed(1)}pp`],
   dealerPct: ['dealer', v => `${v.toFixed(1)}%`, d => `${d.toFixed(1)}pp`],
@@ -150,10 +146,10 @@ function metricText(key, m) {
   return `${label} ${fv(m.value)} (avg ${fv(m.baselineAvg)}, Δ ${m.delta > 0 ? '+' : ''}${fd(m.delta)}, n=${m.n}, ${m.read})`
 }
 
-function buildTreasuryPrompt({ evidence = [], tailAvailable, flagged = [], next }) {
+function buildTreasuryPrompt({ evidence = [], flagged = [], next }) {
   const lines = evidence.map(e =>
     `  ${e.tenor} ${e.date}${e.reopening ? ' (reopening)' : ''}: high yield ${e.highYield?.toFixed(3)}%; ` +
-    Object.keys(METRIC_FMT).filter(k => k !== 'tailBp' || tailAvailable).map(k => metricText(k, e.metrics[k])).join('; ')
+    Object.keys(METRIC_FMT).map(k => metricText(k, e.metrics[k])).join('; ')
   ).join('\n')
   const flaggedText = flagged.length
     ? flagged.map(f => `  ${f.date} ${f.tenor}: ${f.issues.join('; ')}`).join('\n')
@@ -166,7 +162,7 @@ function buildTreasuryPrompt({ evidence = [], tailAvailable, flagged = [], next 
 
 DEFINITIONS
 - dispersion = high yield − median yield. It is ≥ 0 by construction and measures bid spread, not weakness. Never call it a tail and never use it as evidence of weak or strong demand.
-- tail vs WI = high yield − when-issued yield at the 1pm deadline (positive = weak, negative = stop-through). ${tailAvailable ? 'Only cite it for tenors where it is present.' : 'It is NOT available for any auction: say plainly that the tail is unavailable, and do not use the word "tail" for anything else.'}
+- The auction tail (high yield vs when-issued yield) is not part of this data. Do not mention tails at all.
 - Bidder shares are % of competitive accepted. Indirect = bids placed through a dealer: asset managers, funds and foreign official accounts alike. Never describe indirect share as foreign demand. Dealer = the residual primary dealers had to take. direct+indirect = combined end-user take; a move between direct and indirect is not lost demand.
 - avg = trailing average over n prior same-tenor auctions (max 6); Δ = value − avg; the last word (better / worse / inline / neutral) is the pre-computed read. neutral = a bucket shift that is not graded on its own.
 
@@ -180,7 +176,7 @@ FORMAT — exactly 5 sentences, 150 words maximum in total:
 1. The overall read in one clause.
 2. Tenors that support a weaker-demand read, each with its evidence.
 3. Tenors that contradict it, each with its evidence.
-4. Mixed or thin evidence, plus ${tailAvailable ? 'any WI-based tail values' : 'a plain statement that the tail vs WI is unavailable'}.
+4. Tenors with mixed or thin evidence.
 5. What the next scheduled auction will show — what to watch, not a prediction.
 
 LATEST CLEAN AUCTION PER TENOR
@@ -217,37 +213,8 @@ async function handleTreasury(req, res) {
   }
 }
 
-// ── Treasury WI yields: GET /api/synthesis?type=wi, POST {cusip, auctionDate, wiYield|null} ──
-// Writes only on the private project: DASHBOARD_PASSWORD set means middleware.js has
-// already required the dashboard cookie for this (non-OPEN_PATHS) route.
-async function handleWi(req, res) {
-  const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!url || !key) return res.status(500).json({ error: 'Supabase env not configured' })
-  const supabase = createClient(url, key)
-  const editable = !!process.env.DASHBOARD_PASSWORD
-  try {
-    if (req.method === 'GET') {
-      const since = new Date(Date.now() - 400 * 86400000).toISOString().slice(0, 10)
-      res.setHeader('Cache-Control', 'no-store')
-      return res.status(200).json({ values: await getWiYields(supabase, { since }), editable })
-    }
-    if (req.method === 'POST') {
-      if (!editable) return res.status(403).json({ error: 'WI entry is only enabled on the private dashboard' })
-      const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body
-      const invalid = validateWiInput(body)
-      if (invalid) return res.status(400).json({ error: invalid })
-      await saveWiYield(supabase, body)
-      return res.status(200).json({ success: true })
-    }
-    return res.status(405).json({ error: 'Method not allowed' })
-  } catch (err) {
-    return res.status(500).json({ error: err.message })
-  }
-}
-
 export default async function handler(req, res) {
   const type = req.query?.type ?? new URL(req.url, `http://${req.headers.host}`).searchParams.get('type')
-  if (type === 'wi') return handleWi(req, res)
 
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
