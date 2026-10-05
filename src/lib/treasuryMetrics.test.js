@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   classify, normalizeAuction, dispersionBp, tailBp, bucketShares, validateRow,
-  computeBaseline, buildAuctionTable, latestByTenor, assess, METRICS, wiKey,
+  computeBaseline, buildAuctionTable, latestByTenor, assess, METRICS, wiKey, summaryPayload,
 } from './treasuryMetrics.js'
 
 // Real Fiscal Data rows (fields trimmed to what the module reads).
@@ -135,6 +135,7 @@ test('assess respects metric direction and tolerance', () => {
   assert.equal(assess(btc, 0.01), 'inline')
   assert.equal(assess(dealer, 3), 'worse')
   assert.equal(assess(indirect, -5), 'neutral') // bucket shifts aren't better/worse on their own
+  assert.equal(assess(METRICS.find(m => m.key === 'dispersionBp'), 2.5), 'neutral') // spread, not weakness
   assert.equal(assess(btc, null), null)
 })
 
@@ -162,4 +163,17 @@ test('buildAuctionTable merges WI yields into tail and keeps flagged rows out of
   assert.ok(Math.abs(latest.deltas.bidToCover - (2.71 - 2.53)) < 1e-9)
   assert.equal(first.baseline.bidToCover.n, 0)
   assert.equal(latestByTenor(t.coupons)[0].auctionDate, '2026-09-09')
+})
+
+test('summaryPayload exposes only computed fields and marks tail unavailable without WI', () => {
+  const upcoming = row({ cusip: 'NEXT00001', auction_date: '2026-10-07', security_term: '9-Year 10-Month', original_security_term: '10-Year', reopening: 'Yes', high_yield: null, bid_to_cover_ratio: null, offering_amt: '39000000000' })
+  const t = buildAuctionTable([TIPS_10Y_0723, NOTE_7Y_0924, REOPEN_10Y_0909, upcoming], { today: '2026-10-04' })
+  const p = summaryPayload({ ...t, allCoupons: t.coupons })
+  assert.equal(p.tailAvailable, false)
+  assert.deepEqual(p.evidence.map(e => e.tenor), ['7Y', '10Y'])
+  assert.deepEqual(Object.keys(p.evidence[0].metrics), METRICS.map(m => m.key))
+  assert.equal(p.evidence[0].metrics.tailBp.value, null)
+  assert.equal(p.evidence[0].metrics.bidToCover.n, 0)
+  assert.deepEqual(p.next, { date: '2026-10-07', tenor: '10Y', reopening: true, sizeBn: 39 })
+  assert.ok(!JSON.stringify(p).includes('TIPS'))
 })

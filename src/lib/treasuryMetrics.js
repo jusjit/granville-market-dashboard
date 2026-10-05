@@ -23,14 +23,16 @@ export const YIELD_JUMP_BP = 75
 const BUCKET_TOLERANCE = 0.005
 
 // Deltas smaller than these are shown as "in line" rather than better/worse.
+// better: null = shown with its delta but never graded (dispersion is bid spread, not
+// weakness; direct vs indirect alone is a bucket shift, not lost demand).
 export const METRICS = [
-  { key: 'bidToCover', label: 'Bid/Cover', better: 'higher', tol: 0.05 },
-  { key: 'dispersionBp', label: 'Dispersion', better: 'lower', tol: 0.5 },
-  { key: 'tailBp', label: 'Tail vs WI', better: 'lower', tol: 0.5 },
-  { key: 'directPct', label: 'Direct', better: null, tol: 1.5 },
-  { key: 'indirectPct', label: 'Indirect', better: null, tol: 1.5 },
-  { key: 'dealerPct', label: 'Dealer', better: 'lower', tol: 1.5 },
-  { key: 'endUserPct', label: 'Direct + Indirect', better: 'higher', tol: 1.5 },
+  { key: 'bidToCover', label: 'Bid/Cover', better: 'higher', tol: 0.05, digits: 2 },
+  { key: 'dispersionBp', label: 'Dispersion', better: null, tol: 0.5, digits: 1 },
+  { key: 'tailBp', label: 'Tail vs WI', better: 'lower', tol: 0.5, digits: 1 },
+  { key: 'directPct', label: 'Direct', better: null, tol: 1.5, digits: 1 },
+  { key: 'indirectPct', label: 'Indirect', better: null, tol: 1.5, digits: 1 },
+  { key: 'dealerPct', label: 'Dealer', better: 'lower', tol: 1.5, digits: 1 },
+  { key: 'endUserPct', label: 'Direct + Indirect', better: 'higher', tol: 1.5, digits: 1 },
 ]
 
 export function num(v) {
@@ -206,4 +208,29 @@ export function latestByTenor(coupons) {
   const seen = new Map()
   for (const r of coupons) if (!r.flags.length && !seen.has(r.tenor)) seen.set(r.tenor, r)
   return COUPON_TERMS.filter(t => seen.has(t)).map(t => seen.get(t))
+}
+
+const round = (v, digits) => v == null ? null : Number(v.toFixed(digits))
+
+// Computed fields only — the summary prompt may cite nothing else.
+export function summaryPayload({ allCoupons, coupons, next }) {
+  const evidence = latestByTenor(allCoupons).map(r => ({
+    date: r.auctionDate,
+    tenor: r.tenorLabel,
+    reopening: r.reopening,
+    highYield: r.highYield,
+    metrics: Object.fromEntries(METRICS.map(m => [m.key, {
+      value: round(r[m.key], m.digits),
+      baselineAvg: round(r.baseline[m.key].avg, m.digits),
+      n: r.baseline[m.key].n,
+      delta: round(r.deltas[m.key], m.digits),
+      read: assess(m, r.deltas[m.key]),
+    }])),
+  }))
+  return {
+    evidence,
+    tailAvailable: evidence.some(e => e.metrics.tailBp.value != null),
+    flagged: coupons.filter(r => r.flags.length).map(r => ({ date: r.auctionDate, tenor: r.tenorLabel, issues: r.flags.map(f => f.message) })),
+    next: next ? { date: next.auctionDate, tenor: next.tenorLabel, reopening: next.reopening, sizeBn: next.offeringAmt != null ? next.offeringAmt / 1e9 : null } : null,
+  }
 }

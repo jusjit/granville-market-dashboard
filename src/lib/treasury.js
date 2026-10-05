@@ -1,55 +1,82 @@
+import { buildAuctionTable } from './treasuryMetrics'
+
 const BASE = 'https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v1/accounting/od/auctions_query'
+const FIELDS = [
+  'cusip', 'auction_date', 'issue_date', 'security_type', 'security_term', 'original_security_term', 'reopening',
+  'floating_rate', 'inflation_index_security', 'offering_amt', 'high_yield', 'avg_med_yield', 'high_discnt_margin',
+  'bid_to_cover_ratio', 'comp_accepted', 'total_accepted', 'direct_bidder_accepted', 'indirect_bidder_accepted',
+  'primary_dealer_accepted',
+].join(',')
 
-const MARKET_MOVING_TERMS = new Set([
-  '2-Year', '3-Year', '5-Year', '7-Year', '10-Year', '20-Year', '30-Year',
-])
+// 330 days back so every tenor shown in the 90-day window has up to 6 prior same-tenor auctions.
+const LOOKBACK_DAYS = 330
+export const DISPLAY_DAYS = 90
+const CACHE_KEY = 'treasury_auctions_v2'
+const CACHE_TTL_MS = 30 * 60 * 1000
 
-export async function fetchTreasuryAuctions() {
-  const url = `${BASE}?sort=-auction_date&page[size]=80&filter=security_type:in:(Note,Bond),auction_date:gte:${ninetyDaysAgo()}`
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`Treasury: HTTP ${res.status}`)
-  const json = await res.json()
-  return (json.data ?? [])
-    .filter(r => MARKET_MOVING_TERMS.has(r.security_term))
-    .map(normalize)
-}
-
-function ninetyDaysAgo() {
+function daysAgo(n) {
   const d = new Date()
-  d.setDate(d.getDate() - 90)
+  d.setDate(d.getDate() - n)
   return d.toISOString().slice(0, 10)
 }
 
-function normalize(row) {
-  const highYield = num(row.high_yield)
-  const medianYield = num(row.avg_med_yield)
-  const totalAccepted = num(row.total_accepted)
+function readCache() {
+  try {
+    const c = JSON.parse(localStorage.getItem(CACHE_KEY) ?? 'null')
+    return c && Date.now() - c.fetchedAt < CACHE_TTL_MS ? c : null
+  } catch { return null }
+}
 
-  return {
-    auctionDate: row.auction_date,
-    securityType: row.security_type,
-    securityTerm: row.security_term,
-    highYield,
-    medianYield,
-    tail: highYield != null && medianYield != null ? +(highYield - medianYield).toFixed(3) : null,
-    bidToCover: num(row.bid_to_cover_ratio),
-    offeringAmt: num(row.offering_amt),
-    totalAccepted,
-    totalTendered: num(row.total_tendered),
-    directPct: pct(num(row.direct_bidder_accepted), totalAccepted),
-    indirectPct: pct(num(row.indirect_bidder_accepted), totalAccepted),
-    dealerPct: pct(num(row.primary_dealer_accepted), totalAccepted),
-    cusip: row.cusip,
+function writeCache(c) {
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify(c)) } catch { /* storage unavailable */ }
+}
+
+// Raw Fiscal Data rows. Note/Bond includes TIPS and FRNs (flagged by
+// inflation_index_security / floating_rate); classification happens in treasuryMetrics.
+async function fetchRawAuctions() {
+  const cached = readCache()
+  if (cached) return cached
+  const url = `${BASE}?fields=${FIELDS}&sort=-auction_date&page[size]=400&filter=security_type:in:(Note,Bond),auction_date:gte:${daysAgo(LOOKBACK_DAYS)}`
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`Treasury: HTTP ${res.status}`)
+  const json = await res.json()
+  const entry = { rows: json.data ?? [], fetchedAt: Date.now() }
+  writeCache(entry)
+  return entry
+}
+
+export async function fetchWiYields() {
+  try {
+    const r = await fetch('/api/synthesis?type=wi')
+    if (!r.ok) return { values: {}, editable: false, error: `WI yields: HTTP ${r.status}` }
+    return await r.json()
+  } catch (err) {
+    return { values: {}, editable: false, error: err.message }
   }
 }
 
-function num(v) {
-  if (v == null || v === '') return null
-  const n = Number(v)
-  return isNaN(n) ? null : n
+export async function saveWiYield(cusip, auctionDate, wiYield) {
+  const r = await fetch('/api/synthesis?type=wi', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cusip, auctionDate, wiYield }),
+  })
+  const data = await r.json().catch(() => ({}))
+  if (!r.ok) throw new Error(data.error ?? `HTTP ${r.status}`)
 }
 
-function pct(part, total) {
-  if (part == null || total == null || total === 0) return null
-  return +((part / total) * 100).toFixed(1)
+export async function fetchTreasuryAuctions() {
+  const [{ rows, fetchedAt }, wi] = await Promise.all([fetchRawAuctions(), fetchWiYields()])
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+  const table = buildAuctionTable(rows, { wiByKey: wi.values ?? {}, today })
+  const cutoff = daysAgo(DISPLAY_DAYS)
+  return {
+    ...table,
+    coupons: table.coupons.filter(r => r.auctionDate >= cutoff),
+    excluded: table.excluded.filter(r => r.auctionDate >= cutoff),
+    allCoupons: table.coupons,
+    wiEditable: !!wi.editable,
+    wiError: wi.error ?? null,
+    fetchedAt,
+  }
 }
