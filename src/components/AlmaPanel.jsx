@@ -43,7 +43,58 @@ function touchColor(pct) {
   return 'text-red-400'
 }
 
-function Level({ label, value, accent, sigma, levelType, digits = 2 }) {
+// Pivot→target gap in SPX 1σ units (target_conditional_timing backtest: hit rate once
+// the pivot breaks, 376 days). Ancillary context only — EXPLORATORY, 19 target hits.
+const GAP_BUCKETS = [
+  { max: 0.75, label: 'tight', rate: 41, dot: 'bg-green-500/60' },
+  { max: 1.25, label: 'moderate', rate: 27, dot: 'bg-slate-400/70' },
+  { max: Infinity, label: 'wide', rate: 11, dot: 'bg-slate-600' },
+]
+
+// Tradier touch timestamps are naive America/New_York wall-clock ("2026-10-05T09:47:00").
+function nyMinutesAgo(naive) {
+  const [d, t] = naive.split('T')
+  const nowNy = new Date().toLocaleString('en-CA', { timeZone: 'America/New_York', hourCycle: 'h23' })
+  const [nd, nt] = nowNy.split(', ')
+  if (nd !== d) return null
+  const mins = s => +s.slice(0, 2) * 60 + +s.slice(3, 5)
+  return mins(nt) - mins(t)
+}
+
+function GapHint({ gap, pivotTouchedAt, targetTouchedAt, rule }) {
+  const [open, setOpen] = useState(false)
+  const b = GAP_BUCKETS.find(x => gap < x.max)
+  const g = gap.toFixed(1)
+  const lines = [
+    `Pivot→target gap ${g}σ (${b.label}). Historically ~${b.rate}% of targets hit once the pivot breaks; ` +
+      (gap < 1.25 ? '47% if the pivot breaks by 10:00 ET.' : 'the 47% case needs the pivot by 10:00 ET and a gap under 1.25σ.'),
+  ]
+  if (pivotTouchedAt) {
+    const ago = nyMinutesAgo(pivotTouchedAt)
+    lines.push(`Pivot touched ${pivotTouchedAt.slice(11, 16)} ET${ago != null ? `, ${ago}m ago` : ''}.` +
+      (targetTouchedAt ? ` Target touched ${targetTouchedAt.slice(11, 16)} ET.`
+        : ago != null && ago >= 120 ? ' No target 2h after the pivot touch: odds drop to ~12%.' : ' Median wait to target ~86m.'))
+  }
+  const hits = rule?.stats?.target_hits
+  lines.push(`${rule?.reliability_tier ?? 'EXPLORATORY'} rule${hits ? ` (${hits} target hits)` : ''}: context, not a signal.`)
+  const tip = lines.join('\n')
+  return (
+    <span className="relative inline-flex">
+      <button type="button" title={tip} onClick={() => setOpen(o => !o)}
+        className="inline-flex items-center gap-1 font-mono text-[10px] text-slate-500 hover:text-slate-400">
+        <span className={`inline-block w-1.5 h-1.5 rounded-full ${b.dot}`} />
+        <span className="hidden sm:inline">gap {g}σ</span>
+      </button>
+      {open && (
+        <span className="absolute left-0 top-full mt-1 z-10 w-56 rounded border border-slate-700 bg-slate-900 p-2 text-[10px] leading-snug text-slate-300 whitespace-pre-line shadow-lg">
+          {tip}
+        </span>
+      )}
+    </span>
+  )
+}
+
+function Level({ label, value, accent, sigma, levelType, digits = 2, children }) {
   const pct = sigma != null ? touchPct(sigma, levelType) : null
   return (
     <div className="flex flex-col gap-0.5">
@@ -57,6 +108,7 @@ function Level({ label, value, accent, sigma, levelType, digits = 2 }) {
           <span className={`font-mono text-[10px] font-bold ${touchColor(pct)}`}>~{pct}%</span>
         </span>
       )}
+      {children}
     </div>
   )
 }
@@ -131,6 +183,18 @@ export default function AlmaPanel({ data, loading, error }) {
   const upTargetSigma = toSigma(d.upside_target)
   const dnTargetSigma = toSigma(d.downside_target)
 
+  // Pivot→target gap uses the stored SPX_center (prev close) as the band anchor.
+  const gapSigma = (d.SPX_s1_upper != null && d.SPX_center != null) ? d.SPX_s1_upper - d.SPX_center : null
+  const gapOf = (far, near) => {
+    if (far == null || near == null || !gapSigma || gapSigma <= 0) return null
+    const g = (far - near) / gapSigma
+    return g > 0 ? g : null
+  }
+  const upGap = gapOf(d.upside_target, d.upside_pivot)
+  const dnGap = gapOf(d.downside_pivot, d.downside_target)
+  const touches = data.touchTimestamps ?? {}
+  const timingRule = data.activeRules?.find(r => r.id === 'target_conditional_timing') ?? null
+
   return (
     <div className="space-y-4">
       {/* ── Daily levels card (centroid first) ─────────────────────────────── */}
@@ -175,8 +239,12 @@ export default function AlmaPanel({ data, loading, error }) {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
           <Level label="Upside Pivot" value={d.upside_pivot} accent="text-green-400" sigma={upPivotSigma} levelType="upside_pivot" />
           <Level label="Downside Pivot" value={d.downside_pivot} accent="text-red-400" sigma={dnPivotSigma} levelType="downside_pivot" />
-          <Level label="Upside Target" value={d.upside_target} accent="text-green-500/70" sigma={upTargetSigma} levelType="upside_target" />
-          <Level label="Downside Target" value={d.downside_target} accent="text-red-500/70" sigma={dnTargetSigma} levelType="downside_target" />
+          <Level label="Upside Target" value={d.upside_target} accent="text-green-500/70" sigma={upTargetSigma} levelType="upside_target">
+            {upGap != null && <GapHint gap={upGap} pivotTouchedAt={touches.upside_pivot} targetTouchedAt={touches.upside_target} rule={timingRule} />}
+          </Level>
+          <Level label="Downside Target" value={d.downside_target} accent="text-red-500/70" sigma={dnTargetSigma} levelType="downside_target">
+            {dnGap != null && <GapHint gap={dnGap} pivotTouchedAt={touches.downside_pivot} targetTouchedAt={touches.downside_target} rule={timingRule} />}
+          </Level>
         </div>
 
         {/* Sigma bands */}
