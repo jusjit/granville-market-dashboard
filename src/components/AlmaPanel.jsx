@@ -102,7 +102,6 @@ export default function AlmaPanel({ data, loading, error }) {
 
   const d = data.intraday
   const w = data.weekly
-  const spxLast = data.live?.spx?.last ?? null
   const biasColor =
     d.directional_bias?.toLowerCase().includes('bull') ? 'text-green-400' :
     d.directional_bias?.toLowerCase().includes('bear') ? 'text-red-400' : 'text-slate-300'
@@ -264,74 +263,123 @@ export default function AlmaPanel({ data, loading, error }) {
   )
 }
 
-export function AlmaActiveRules({ rules }) {
-  if (!rules?.length) return null
+// One-line takeaways for the rule list. The rules table stores full backtest write-ups
+// (finding/interpretation), which stay available in each row's expandable detail.
+// Unknown rule ids fall back to the first sentence of the finding.
+const RULE_TAKEAWAYS = {
+  dont_fade_rule: 'Gap up on falling VIX: don’t fade it — centroid fill odds drop to ~33% (vs ~70% normally).',
+  sigma_bands_are_not_containment: 'Bands are targets, not a range — SPX stays inside its 1σ band only ~13% of days.',
+  sigma_touch_decay: 'Touch odds fall with σ distance, yet far levels still hit far more often than a normal distribution implies.',
+  intraday_pivot_touch: 'Opened inside the pivots: one gets hit ~86% of days — upside faster (median 30m) than downside (53m).',
+  intraday_centroid_touch: 'Centroid hit ~70% of days, mostly in the first hour; still untouched by 11:30 → ~1 in 4.',
+  weekly_pivot_touch: 'A weekly pivot gets hit ~87% of weeks — geometry, not edge.',
+  targets_are_soft_walls: 'After a pivot breaks, its target is reached only ~38% of the time.',
+  target_conditional_timing: 'A target is only live if its pivot breaks by 10:00 and it sits within ~1.25σ beyond (47% vs 16%).',
+  weekly_centroid_touch: 'Weekly centroid hit ~56% of weeks — worse than the prior-week close.',
+  directional_tell: 'Open above/below the centroid “tell” is a geometry artifact — not tradeable.',
+  pattern_type_conditioning: 'Fly/condor pattern type doesn’t shift centroid odds beyond noise.',
+  vix_regime_breach_skew: '1σ breaches skew to the upside, except VIX 22–28 where downside dominates.',
+  risk_level_construct: 'Risk level sits correctly between 1σ and 2σ; no behavioral effect found yet.',
+  weekly_reversion_model: 'High reversion flag describes the prior move, not the next — unusable.',
+}
+
+function takeaway(rule) {
+  return RULE_TAKEAWAYS[rule.id] ?? (rule.finding ?? '').split(/(?<=\.)\s/)[0]
+}
+
+function RuleLine({ rule }) {
+  const [open, setOpen] = useState(false)
+  const signal = rule.actionable_as_signal
+  const s = rule.stats ?? {}
   return (
-    <div>
-      <div className="flex items-baseline gap-3 mb-2 flex-wrap">
-        <p className="text-[10px] text-slate-600 uppercase tracking-widest">
-          Active Rules ({rules.length})
-        </p>
-        <p className="text-[10px] text-slate-600">
-          Strongest evidence first · <span className="text-green-500">Signal</span> = placement carries
-          information; Context = reliable stat explained by proximity, not an edge
-        </p>
-      </div>
-      <div className="space-y-3">
-        {rules.map(rule => {
-          const signal = rule.actionable_as_signal
-          const s = rule.stats ?? {}
-          return (
-            <div
-              key={rule.id}
-              className={`rounded-lg border p-3 flex flex-col gap-2 ${
-                signal
-                  ? 'border-green-900/40 bg-green-950/10'
-                  : 'border-slate-800 bg-slate-900/50'
-              }`}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-mono text-[10px] text-slate-600">#{rule.rank}</span>
-                    <p className="text-xs font-semibold text-slate-200">{rule.name}</p>
-                    <span className="text-[10px] text-slate-600 uppercase">{rule.horizon}</span>
-                  </div>
-                  <p className="text-xs text-slate-400 leading-snug mt-1">{rule.finding}</p>
-                </div>
-                <div className="flex flex-col items-end gap-1 shrink-0">
-                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border ${signal ? SIGNAL_BADGE : CONTEXT_BADGE}`}>
-                    {signal ? 'Signal' : 'Context'}
-                  </span>
-                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border ${TIER_COLORS[rule.reliability_tier] ?? TIER_COLORS.EXPLORATORY}`}>
-                    {rule.reliability_tier}
-                  </span>
-                </div>
-              </div>
+    <li className="border-t border-slate-800/50 first:border-t-0">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-start gap-2 py-1.5 text-left hover:bg-slate-800/20 rounded"
+      >
+        <span className="text-slate-600 text-[10px] mt-0.5 w-3 shrink-0">{open ? '▾' : '▸'}</span>
+        <span className="min-w-0 flex-1">
+          <span className={`text-xs font-semibold ${signal ? 'text-green-300' : 'text-slate-200'}`}>{rule.name}</span>
+          <span className="text-xs text-slate-400"> — {takeaway(rule)}</span>
+        </span>
+        {s.n != null && <span className="font-mono text-[10px] text-slate-600 shrink-0 mt-0.5">n={s.n}</span>}
+      </button>
+      {open && (
+        <div className="pl-5 pb-3 pr-2 space-y-2">
+          <div className="flex gap-1.5 flex-wrap">
+            <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border ${signal ? SIGNAL_BADGE : CONTEXT_BADGE}`}>
+              {signal ? 'Signal' : 'Context'}
+            </span>
+            <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border ${TIER_COLORS[rule.reliability_tier] ?? TIER_COLORS.EXPLORATORY}`}>
+              {rule.reliability_tier}
+            </span>
+            <span className="px-1.5 py-0.5 rounded text-[10px] border border-slate-800 text-slate-500">
+              placebo {rule.placebo_status?.toLowerCase()}
+            </span>
+            <span className="px-1.5 py-0.5 rounded text-[10px] border border-slate-800 text-slate-500">
+              #{rule.rank} · {rule.horizon}
+            </span>
+          </div>
+          {rule.finding && <p className="text-[11px] text-slate-400 leading-relaxed">{rule.finding}</p>}
+          {rule.interpretation && <p className="text-[11px] text-slate-500 leading-relaxed">{rule.interpretation}</p>}
+          {s.naive_benchmark && (
+            <p className="text-[11px] text-slate-600 leading-relaxed">vs naive benchmark: {s.naive_benchmark}</p>
+          )}
+        </div>
+      )}
+    </li>
+  )
+}
 
-              <div className="flex items-center gap-3 flex-wrap">
-                {s.estimate != null && (
-                  <span className="font-mono text-[11px] text-slate-400">
-                    {s.estimate}%{s.n != null ? ` · n=${s.n}` : ''}
-                  </span>
-                )}
-                <span className="text-[10px] text-slate-600">
-                  placebo {rule.placebo_status?.toLowerCase()}
-                </span>
-                {!signal && s.naive_benchmark && (
-                  <span className="text-[10px] text-slate-600 truncate" title={s.naive_benchmark}>
-                    vs naive: {s.naive_benchmark}
-                  </span>
-                )}
-              </div>
+// Minto layout: governing line (is the one predictive rule active?) → today's reliable
+// context as one-liners → lower-confidence rules collapsed. Full write-ups on expand.
+export function AlmaActiveRules({ rules }) {
+  const [showLow, setShowLow] = useState(false)
+  if (!rules?.length) return null
 
-              {rule.interpretation && (
-                <p className="text-[11px] text-slate-500 leading-relaxed">{rule.interpretation}</p>
-              )}
-            </div>
-          )
-        })}
+  const signals = rules.filter(r => r.actionable_as_signal)
+  const context = rules.filter(r => !r.actionable_as_signal && r.reliability_tier === 'VALIDATED')
+  const lowConf = rules.filter(r => !r.actionable_as_signal && r.reliability_tier !== 'VALIDATED')
+
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4 space-y-3">
+      <div className="flex items-baseline justify-between gap-3 flex-wrap">
+        <p className="text-[10px] text-slate-600 uppercase tracking-widest">Active Rules ({rules.length})</p>
+        <p className="text-[10px] text-slate-600">Click a rule for the full backtest detail</p>
       </div>
+
+      {signals.length ? (
+        <div className="rounded-lg border border-green-900/40 bg-green-950/10 px-3 py-2">
+          <p className="text-sm text-green-300 font-semibold">
+            Signal active: {signals.map(r => r.name).join(', ')}
+          </p>
+          <ul className="mt-1">{signals.map(r => <RuleLine key={r.id} rule={r} />)}</ul>
+        </div>
+      ) : (
+        <p className="text-sm text-slate-300">
+          <span className="font-semibold">No signal today.</span>{' '}
+          <span className="text-slate-400">Every active rule is descriptive context — useful for expectations, not an edge.</span>
+        </p>
+      )}
+
+      {context.length > 0 && (
+        <div>
+          <p className="text-[10px] text-slate-600 uppercase tracking-widest mb-1">What to expect today · validated</p>
+          <ul>{context.map(r => <RuleLine key={r.id} rule={r} />)}</ul>
+        </div>
+      )}
+
+      {lowConf.length > 0 && (
+        <div>
+          <button
+            onClick={() => setShowLow(v => !v)}
+            className="text-[10px] text-slate-600 hover:text-slate-400 uppercase tracking-widest"
+          >
+            {showLow ? '▾' : '▸'} Lower confidence ({lowConf.length}) · exploratory or debunked
+          </button>
+          {showLow && <ul className="mt-1">{lowConf.map(r => <RuleLine key={r.id} rule={r} />)}</ul>}
+        </div>
+      )}
     </div>
   )
 }

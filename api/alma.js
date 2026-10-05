@@ -112,6 +112,10 @@ function evaluateRule(rule, ctx) {
     case 'vix_regime_breach_skew':
       return vixOpen != null
 
+    case 'target_conditional_timing':
+      return upPivot != null && downPivot != null &&
+        intraday?.upside_target != null && intraday?.downside_target != null
+
     case 'weekly_reversion_model':
       if (weekly?.reversion_prob == null) return null
       return weekly.reversion_prob >= 97
