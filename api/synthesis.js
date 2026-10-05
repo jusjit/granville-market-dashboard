@@ -1,3 +1,6 @@
+import { createClient } from '@supabase/supabase-js'
+import { getWiYields, validateWiInput, saveWiYield } from '../lib/treasuryWi.mjs'
+
 // Persistent cache in Supabase (synthesis_cache, single row id=1) — survives
 // serverless cold starts. Regenerate only when older than TTL or when the
 // signal states change.
@@ -182,12 +185,42 @@ async function handleTreasury(req, res) {
   }
 }
 
+// ── Treasury WI yields: GET /api/synthesis?type=wi, POST {cusip, auctionDate, wiYield|null} ──
+// Writes only on the private project: DASHBOARD_PASSWORD set means middleware.js has
+// already required the dashboard cookie for this (non-OPEN_PATHS) route.
+async function handleWi(req, res) {
+  const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !key) return res.status(500).json({ error: 'Supabase env not configured' })
+  const supabase = createClient(url, key)
+  const editable = !!process.env.DASHBOARD_PASSWORD
+  try {
+    if (req.method === 'GET') {
+      const since = new Date(Date.now() - 400 * 86400000).toISOString().slice(0, 10)
+      res.setHeader('Cache-Control', 'no-store')
+      return res.status(200).json({ values: await getWiYields(supabase, { since }), editable })
+    }
+    if (req.method === 'POST') {
+      if (!editable) return res.status(403).json({ error: 'WI entry is only enabled on the private dashboard' })
+      const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body
+      const invalid = validateWiInput(body)
+      if (invalid) return res.status(400).json({ error: invalid })
+      await saveWiYield(supabase, body)
+      return res.status(200).json({ success: true })
+    }
+    return res.status(405).json({ error: 'Method not allowed' })
+  } catch (err) {
+    return res.status(500).json({ error: err.message })
+  }
+}
+
 export default async function handler(req, res) {
+  const type = req.query?.type ?? new URL(req.url, `http://${req.headers.host}`).searchParams.get('type')
+  if (type === 'wi') return handleWi(req, res)
+
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
   // Route: POST /api/synthesis?type=treasury
-  const url = new URL(req.url, `http://${req.headers.host}`)
-  if (url.searchParams.get('type') === 'treasury') return handleTreasury(req, res)
+  if (type === 'treasury') return handleTreasury(req, res)
 
   const key = process.env.ONEMIN_KEY
   if (!key) return res.status(500).json({ error: 'ONEMIN_KEY not configured' })
