@@ -21,6 +21,20 @@ const DAILY_FIELD_MAP = {
   'Daily Downside Target': 'downside_target',
 }
 
+// Directional daily levels can be cleared by the opening gap without ever trading
+// at the level (e.g. SPX opens above the upside pivot's ±0.1% band). The backtest's
+// touch rule doesn't count that, so it gets its own status instead of "NOT HIT".
+const LEVEL_SIDE = {
+  'Daily Upside Pivot': 'up', 'Daily Upside Target': 'up',
+  'Daily Downside Pivot': 'dn', 'Daily Downside Target': 'dn',
+}
+
+function gappedThrough(level, side, open) {
+  if (level == null || open == null || !side) return false
+  const adj = level * TOL
+  return side === 'up' ? open > level + adj : open < level - adj
+}
+
 function touched(level, low, high) {
   if (level == null || low == null || high == null) return null
   const adj = level * TOL
@@ -51,6 +65,7 @@ export default function AlmaLog({ data }) {
   const usingLive = live?.isToday && live?.spx?.high != null && live?.spx?.low != null
   const low = usingLive ? live.spx.low : m?.spx_low
   const high = usingLive ? live.spx.high : m?.spx_high
+  const open = usingLive ? live.spx.open : m?.spx_open
   const sessionDate = usingLive ? (live.updatedAt ? new Date(live.updatedAt).toLocaleDateString('en-CA', { timeZone: 'America/New_York' }) : d.date) : m?.date
   if (low == null || high == null) return null
 
@@ -69,11 +84,13 @@ export default function AlmaLog({ data }) {
 
   const entries = levels.map(l => {
     const hit = touched(l.value, low, high)
+    const gapped = !hit && gappedThrough(l.value, LEVEL_SIDE[l.label], open)
     const field = DAILY_FIELD_MAP[l.label]
     const touchedAt = hit && field ? fmtEtTime(touchTimestamps[field]) : null
-    return { ...l, hit, touchedAt }
+    return { ...l, hit, gapped, touchedAt }
   })
   const hits = entries.filter(e => e.hit === true).length
+  const gappedCount = entries.filter(e => e.gapped).length
 
   return (
     <section>
@@ -82,29 +99,37 @@ export default function AlmaLog({ data }) {
           Alma Signal Log
         </h2>
         <span className="text-[10px] text-slate-700 border border-slate-800 rounded px-1.5 py-0.5">
-          Session {sessionDate} · range {low?.toFixed(2)}–{high?.toFixed(2)}
+          Session {sessionDate} · open {open?.toFixed(2) ?? '—'} · range {low?.toFixed(2)}–{high?.toFixed(2)}
           {usingLive ? ' · live, updates every 15 min' : ' · from last close snapshot'}
         </span>
       </div>
       <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
         <p className="text-xs text-slate-500 mb-3">
           {hits} of {entries.length} tracked levels touched this session
+          {gappedCount > 0 && ` · ${gappedCount} gapped through at the open`}
           <span className="text-slate-600"> · ±0.1% tolerance (matches backtest)</span>
         </p>
         <ul className="space-y-2">
           {entries.map(e => (
             <li key={e.label} className="flex items-center gap-3 text-xs flex-wrap">
-              <span className={`shrink-0 w-14 text-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${
+              <span
+                title={e.gapped ? `Session opened at ${open?.toFixed(2)}, beyond this level's ±0.1% band, and never traded back to it. Not a touch under the backtest rule.` : undefined}
+                className={`shrink-0 w-14 text-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${
                 e.hit
                   ? 'text-green-400 bg-green-950/30 border-green-900/40'
-                  : 'text-slate-500 bg-slate-800/40 border-slate-700/40'
+                  : e.gapped
+                    ? 'text-amber-300 bg-amber-950/30 border-amber-900/40'
+                    : 'text-slate-500 bg-slate-800/40 border-slate-700/40'
               }`}>
-                {e.hit ? 'HIT' : 'NOT HIT'}
+                {e.hit ? 'HIT' : e.gapped ? 'GAPPED' : 'NOT HIT'}
               </span>
               <span className={`shrink-0 text-[10px] uppercase tracking-widest ${e.scope === 'daily' ? 'text-violet-500' : 'text-sky-500'}`}>
                 {e.scope}
               </span>
               <span className="text-slate-300">{e.label}</span>
+              {e.gapped && (
+                <span className="text-[10px] font-mono text-amber-400/80">cleared at open {open?.toFixed(2)}</span>
+              )}
               {e.hit && (
                 <span className="text-[10px] font-mono text-amber-400/80">
                   {e.touchedAt ?? (e.scope === 'daily' ? 'time unavailable' : 'time unknown (weekly)')}

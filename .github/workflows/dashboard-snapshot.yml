@@ -4,6 +4,11 @@ on:
     - cron: '25 13 * * 1-5'  # 9:25am EDT premarket (13:25 UTC)
     - cron: '5 21 * * 1-5'   # 5:05pm EDT close (21:05 UTC)
   workflow_dispatch:  # allows manual trigger for testing
+    inputs:
+      type:
+        description: 'premarket or close'
+        required: true
+        default: 'close'
 
 jobs:
   snapshot:
@@ -11,12 +16,15 @@ jobs:
     steps:
       - name: Determine snapshot type and call endpoint
         run: |
-          HOUR=$(date -u +%H)
-          if [ "$HOUR" -lt 17 ]; then
-            TYPE="premarket"
-          else
-            TYPE="close"
+          # Type comes from the triggering cron, not the clock: GitHub can delay
+          # scheduled runs by hours, and a late close run after midnight UTC used to
+          # be misfiled as premarket (skipping the market_data write).
+          TYPE="${{ github.event.inputs.type }}"
+          if [ -z "$TYPE" ]; then
+            if [ "${{ github.event.schedule }}" = "25 13 * * 1-5" ]; then TYPE=premarket; else TYPE=close; fi
           fi
           echo "Snapshot type: $TYPE"
-          curl -f -X GET "https://private-market-dashboard.vercel.app/api/snapshot?type=$TYPE" \
-            -H "Authorization: Bearer ${{ secrets.SNAPSHOT_SECRET }}"
+          curl -f -s --retry 2 --retry-delay 30 --retry-all-errors --max-time 120 \
+            -X GET "https://private-market-dashboard.vercel.app/api/snapshot?type=$TYPE" \
+            -H "Authorization: Bearer ${{ secrets.SNAPSHOT_SECRET }}" \
+            -w "\nHTTP %{http_code}\n"
