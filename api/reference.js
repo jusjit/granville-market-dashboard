@@ -285,8 +285,8 @@ async function handleOvernightPost(req, res, supabase) {
   const today = ctToday()
   try {
     if (phase === 'morning') {
-      const ctx = await computeOvernightContext()
-      if (ctx.error) return res.status(502).json({ success: false, error: ctx.error })
+      const ctx = await computeOvernightContext(Date.now(), { sessionDate: today })
+      if (ctx.error && !ctx.feedFlags?.includes('es_overnight_missing')) return res.status(502).json({ success: false, error: ctx.error })
       if (ctx.sessionDate !== today || !ctx.overnight) {
         return res.status(200).json({ success: true, skipped: `no ES session for ${today} (latest ${ctx.sessionDate})` })
       }
@@ -296,8 +296,8 @@ async function handleOvernightPost(req, res, supabase) {
       return res.status(200).json({ success: true, phase, session_date: today, provisional: ctx.gap.provisional, feed_flags: ctx.feedFlags })
     }
     if (phase === 'close') {
-      const row = await computeRthRow(today)
-      if (!row) return res.status(200).json({ success: true, skipped: `RTH for ${today} not available (holiday or not finished)` })
+      const row = await computeRthRow()
+      if (!row) return res.status(200).json({ success: true, skipped: `latest RTH session as of ${today} not finished in the feed yet` })
       const { error } = await supabase.from('overnight_context_log').upsert([row], { onConflict: 'session_date' })
       if (error) throw new Error(error.message)
       return res.status(200).json({ success: true, phase, ...row })
