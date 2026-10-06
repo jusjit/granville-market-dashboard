@@ -43,12 +43,13 @@ function touchColor(pct) {
   return 'text-red-400'
 }
 
-// Pivot→target gap in SPX 1σ units (target_conditional_timing backtest: hit rate once
-// the pivot breaks, 376 days). Ancillary context only — EXPLORATORY, 19 target hits.
+// Pivot→target gap in SPX 1σ units (target_conditional_timing backtest, 376 days, 0.1%
+// touch tolerance): target hit rate once the pivot is touched, per side. Ancillary
+// context only — EXPLORATORY, 33 target hits.
 const GAP_BUCKETS = [
-  { max: 0.75, label: 'tight', rate: 41, dot: 'bg-green-500/60' },
-  { max: 1.25, label: 'moderate', rate: 27, dot: 'bg-slate-400/70' },
-  { max: Infinity, label: 'wide', rate: 11, dot: 'bg-slate-600' },
+  { max: 0.75, label: 'tight', up: 47, dn: 44, dot: 'bg-green-500/60' },
+  { max: 1.25, label: 'moderate', up: 42, dn: 36, dot: 'bg-slate-400/70' },
+  { max: Infinity, label: 'wide', up: 5, dn: 19, dot: 'bg-slate-600' },
 ]
 
 // Tradier touch timestamps are naive America/New_York wall-clock ("2026-10-05T09:47:00").
@@ -61,19 +62,21 @@ function nyMinutesAgo(naive) {
   return mins(nt) - mins(t)
 }
 
-function GapHint({ gap, pivotTouchedAt, targetTouchedAt, rule }) {
+function GapHint({ gap, side, pivotTouchedAt, targetTouchedAt, rule }) {
   const [open, setOpen] = useState(false)
   const b = GAP_BUCKETS.find(x => gap < x.max)
   const g = gap.toFixed(1)
   const lines = [
-    `Pivot→target gap ${g}σ (${b.label}). Historically ~${b.rate}% of targets hit once the pivot breaks; ` +
-      (gap < 1.25 ? '47% if the pivot breaks by 10:00 ET.' : 'the 47% case needs the pivot by 10:00 ET and a gap under 1.25σ.'),
+    `Pivot→target gap ${g}σ (${b.label}). Historically ~${b[side]}% of ${side === 'up' ? 'upside' : 'downside'} targets hit once the pivot is touched; ` +
+      (gap < 1.25
+        ? '53% if the pivot is touched by 10:00 ET (vs 20% otherwise).'
+        : 'the 53% case needs the pivot touched by 10:00 ET and a gap under 1.25σ.'),
   ]
   if (pivotTouchedAt) {
     const ago = nyMinutesAgo(pivotTouchedAt)
     lines.push(`Pivot touched ${pivotTouchedAt.slice(11, 16)} ET${ago != null ? `, ${ago}m ago` : ''}.` +
       (targetTouchedAt ? ` Target touched ${targetTouchedAt.slice(11, 16)} ET.`
-        : ago != null && ago >= 120 ? ' No target 2h after the pivot touch: odds drop to ~12%.' : ' Median wait to target ~86m.'))
+        : ago != null && ago >= 120 ? ' No target 2h after the pivot touch: odds drop to ~13%.' : ' Median wait to target ~55m.'))
   }
   const hits = rule?.stats?.target_hits
   lines.push(`${rule?.reliability_tier ?? 'EXPLORATORY'} rule${hits ? ` (${hits} target hits)` : ''}: context, not a signal.`)
@@ -240,10 +243,10 @@ export default function AlmaPanel({ data, loading, error }) {
           <Level label="Upside Pivot" value={d.upside_pivot} accent="text-green-400" sigma={upPivotSigma} levelType="upside_pivot" />
           <Level label="Downside Pivot" value={d.downside_pivot} accent="text-red-400" sigma={dnPivotSigma} levelType="downside_pivot" />
           <Level label="Upside Target" value={d.upside_target} accent="text-green-500/70" sigma={upTargetSigma} levelType="upside_target">
-            {upGap != null && <GapHint gap={upGap} pivotTouchedAt={touches.upside_pivot} targetTouchedAt={touches.upside_target} rule={timingRule} />}
+            {upGap != null && <GapHint gap={upGap} side="up" pivotTouchedAt={touches.upside_pivot} targetTouchedAt={touches.upside_target} rule={timingRule} />}
           </Level>
           <Level label="Downside Target" value={d.downside_target} accent="text-red-500/70" sigma={dnTargetSigma} levelType="downside_target">
-            {dnGap != null && <GapHint gap={dnGap} pivotTouchedAt={touches.downside_pivot} targetTouchedAt={touches.downside_target} rule={timingRule} />}
+            {dnGap != null && <GapHint gap={dnGap} side="dn" pivotTouchedAt={touches.downside_pivot} targetTouchedAt={touches.downside_target} rule={timingRule} />}
           </Level>
         </div>
 
@@ -342,7 +345,7 @@ const RULE_TAKEAWAYS = {
   intraday_centroid_touch: 'Centroid hit ~70% of days, mostly in the first hour; still untouched by 11:30 → ~1 in 4.',
   weekly_pivot_touch: 'A weekly pivot gets hit ~87% of weeks — geometry, not edge.',
   targets_are_soft_walls: 'After a pivot breaks, its target is reached only ~38% of the time.',
-  target_conditional_timing: 'A target is only live if its pivot breaks by 10:00 and it sits within ~1.25σ beyond (47% vs 16%).',
+  target_conditional_timing: 'A target is only live if its pivot is touched by 10:00 and it sits within ~1.25σ beyond (53% vs 20%).',
   weekly_centroid_touch: 'Weekly centroid hit ~56% of weeks — worse than the prior-week close.',
   directional_tell: 'Open above/below the centroid “tell” is a geometry artifact — not tradeable.',
   pattern_type_conditioning: 'Fly/condor pattern type doesn’t shift centroid odds beyond noise.',
