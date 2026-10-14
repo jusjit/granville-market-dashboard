@@ -63,7 +63,7 @@ Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX
 ### `api/synthesis.js`
 - POST `/api/synthesis` with body `{ granvilleData, macroData }`
 - Calls **1min.ai** to generate the AI synthesis
-- **Model**: `gemini-2.5-flash` (swapped from `claude-sonnet-4-6` 2026-07-17). Measured on THIS prompt: 929 credit vs Sonnet's 17,721 (**~19x cheaper**), same 11-13s latency, Minto structure held. Mirrors the aggregator's swap — see `api/aggregate-geo-regime.js` for the full model comparison (gpt-4o-mini rejected there for shallow output; no Claude Haiku on 1min.ai).
+- **Model**: `gemini-3-flash-preview` (2026-10-14: 1min.ai removed `gemini-2.5-flash` → `UNSUPPORTED_MODEL`, which failed the geo cron daily and broke synthesis; probed alternatives: gemini-3-flash-preview, gpt-5-mini, gpt-4o-mini work; gemini-2.5-pro/2.0/3-pro, all Claude ids rejected. **If cron emails recur, check the response body in the workflow log first, then probe models with a tiny prompt**). Previously `gemini-2.5-flash` (swapped from `claude-sonnet-4-6` 2026-07-17). Measured on THIS prompt: 929 credit vs Sonnet's 17,721 (**~19x cheaper**), same 11-13s latency, Minto structure held. Mirrors the aggregator's swap — see `api/aggregate-geo-regime.js` for the full model comparison (gpt-4o-mini rejected there for shallow output; no Claude Haiku on 1min.ai).
 - Retry-once + 3s backoff, 30s per-attempt `AbortSignal.timeout` (gemini's longer calls widen the window for transient 1min.ai gateway 500s). `vercel.json` sets `api/synthesis.js` maxDuration 75 so the retry can actually finish.
 - **Format**: `{ type: "CHAT", model: MODEL, promptObject: { prompt, isMixed: false } }`
 - **Endpoint**: `https://api.1min.ai/api/chat-with-ai` with header `API-KEY: <key>`
@@ -179,7 +179,7 @@ Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX
 1. **Alma Centroid** — private dashboard only (`VITE_SHOW_ALMA=true`). Layout: Daily centroid card (violet, centroid value + sigma distance from spot + touch %, pivots/targets each with sigma distance + directional touch probability, sigma bands grid with symbol switcher) → Live SPX Reference (SPX Last, Prev Close, Open, Gap from Centroid, VIX Gap) → Weekly levels card → Alma Signal Log → Active Rules (`AlmaActiveRules`, exported from AlmaPanel, rendered in App.jsx after AlmaLog; Minto one-liners, details on click). Touch probabilities are from backtest (`sigma_touch_decay` / `intraday_pivot_touch`), split by upside (n=210) and downside (n=215) — downside has fatter tails (26.2% at 2-3σ vs 12.5% upside). Sigma distance measured from SPX open using half the 1σ band width as the vol unit.
 1b. **Overnight Context (descriptive)** — ES overnight OHLC/range/volume vs 20d, gap in pts/σ, range position, timing split, foreign-index spillover z-scores, one-line summary, feed timestamps + stale/missing chips. Both dashboards.
 2. **Vol Surface** — SPX term structure, Tradier/ORATS options data. Has its own Refresh button (re-fetches live data without refreshing the full dashboard) + Compare snapshot toggle for historical overlay.
-3. **AI Synthesis** — indigo panel, gemini-2.5-flash via 1min.ai, updates on refresh
+3. **AI Synthesis** — indigo panel, gemini-3-flash-preview via 1min.ai, updates on refresh
 4. **Granville Composite** — Recharts half-circle gauge (0–100)
 5. **7 Granville Signal Cards** — green/yellow/red
 6. **Granville Signal Log** — plain-English bullet log
@@ -294,7 +294,7 @@ App.jsx
 - **worldmonitor API auth**: needs browser User-Agent (Cloudflare 403 otherwise) and a
   `wms_` session token from `POST /api/wm-session` sent as `X-WorldMonitor-Key` for
   `/v1` gateway endpoints (401 otherwise)
-- **Model**: `gemini-2.5-flash` via 1min.ai (swapped from `claude-sonnet-4-6`
+- **Model**: `gemini-3-flash-preview` via 1min.ai (was `gemini-2.5-flash` until 1min.ai removed it 2026-10-14; before that swapped from `claude-sonnet-4-6`
   2026-07-16). ~8-13x cheaper in 1min.ai credit (~17-30K credit vs Sonnet's
   ~180-250K per call), comparable analytical depth. No Claude Haiku available
   on 1min.ai. gpt-4o-mini rejected for noticeably shallow output. `MODEL`
