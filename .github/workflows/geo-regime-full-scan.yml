@@ -19,5 +19,7 @@ jobs:
     steps:
       - name: Call aggregate-geo-regime endpoint (scan=full)
         run: |
-          curl -f --max-time 460 -X GET "https://private-market-dashboard.vercel.app/api/aggregate-geo-regime?scan=full" \
-            -H "Authorization: Bearer ${{ secrets.SNAPSHOT_SECRET }}"
+          CODE=$(curl -sS --max-time 460 -o resp.json -w '%{http_code}' -X GET "https://private-market-dashboard.vercel.app/api/aggregate-geo-regime?scan=full" \
+            -H "Authorization: Bearer ${{ secrets.SNAPSHOT_SECRET }}")
+          echo "HTTP $CODE"; head -c 2000 resp.json; echo
+          [ "$CODE" -lt 400 ]

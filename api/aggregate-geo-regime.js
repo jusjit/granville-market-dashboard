@@ -446,7 +446,9 @@ Respond with the strict JSON object only — no markdown fences, no commentary.`
 //   - Latency: ~58s for gemini-2.5-flash vs Sonnet's own ~40s already running
 //     successfully in production — not a new class of risk, but real; see
 //     vercel.json maxDuration.
-const MODEL = 'gemini-2.5-flash'
+// 2026-10: 1min.ai dropped gemini-2.5-flash (UNSUPPORTED_MODEL, cron failed daily). Probed
+// alternatives: gemini-3-flash-preview, gpt-5-mini, gpt-4o-mini still work; others rejected.
+const MODEL = 'gemini-3-flash-preview'
 
 function sleep(ms) { return new Promise(res => setTimeout(res, ms)) }
 

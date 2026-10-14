@@ -85,7 +85,8 @@ Write the synthesis now:`
 // far smaller than the aggregator's, so quality risk is lower still, but the
 // Minto structure is load-bearing for SynthesisPanel's parser — verified after
 // the swap that gemini still emits Bottom line: / Why: / - / Session lean:.
-const MODEL = 'gemini-2.5-flash'
+// 2026-10: 1min.ai dropped gemini-2.5-flash (UNSUPPORTED_MODEL); gemini-3-flash-preview is the working successor.
+const MODEL = 'gemini-3-flash-preview'
 
 function sleep(ms) { return new Promise(res => setTimeout(res, ms)) }
 
