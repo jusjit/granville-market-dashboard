@@ -35,6 +35,12 @@ function gappedThrough(level, side, open) {
   return side === 'up' ? open > level + adj : open < level - adj
 }
 
+// Price actually traded through the level (no tolerance).
+function tradedThrough(level, low, high) {
+  if (level == null || low == null || high == null) return null
+  return low <= level && high >= level
+}
+
 function touched(level, low, high) {
   if (level == null || low == null || high == null) return null
   const adj = level * TOL
@@ -83,13 +89,19 @@ export default function AlmaLog({ data }) {
   ].filter(l => l.value != null)
 
   const entries = levels.map(l => {
-    const hit = touched(l.value, low, high)
-    const gapped = !hit && gappedThrough(l.value, LEVEL_SIDE[l.label], open)
+    const inBand = touched(l.value, low, high)
+    // HIT = traded through; NEAR = only reached the ±0.1% band (still a touch in the
+    // backtest's statistics, but price never printed the level itself).
+    const hit = inBand && tradedThrough(l.value, low, high)
+    const near = inBand && !hit
+    const shortBy = near ? (high < l.value ? l.value - high : low - l.value) : null
+    const gapped = !inBand && gappedThrough(l.value, LEVEL_SIDE[l.label], open)
     const field = DAILY_FIELD_MAP[l.label]
-    const touchedAt = hit && field ? fmtEtTime(touchTimestamps[field]) : null
-    return { ...l, hit, gapped, touchedAt }
+    const touchedAt = inBand && field ? fmtEtTime(touchTimestamps[field]) : null
+    return { ...l, hit, near, shortBy, gapped, touchedAt }
   })
   const hits = entries.filter(e => e.hit === true).length
+  const nearCount = entries.filter(e => e.near).length
   const gappedCount = entries.filter(e => e.gapped).length
 
   return (
@@ -105,23 +117,30 @@ export default function AlmaLog({ data }) {
       </div>
       <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
         <p className="text-xs text-slate-500 mb-3">
-          {hits} of {entries.length} tracked levels touched this session
+          {hits} of {entries.length} tracked levels traded through this session
+          {nearCount > 0 && ` · ${nearCount} within ±0.1% only`}
           {gappedCount > 0 && ` · ${gappedCount} gapped through at the open`}
-          <span className="text-slate-600"> · ±0.1% tolerance (matches backtest)</span>
+          <span className="text-slate-600"> · NEAR counts as a touch in the backtest’s ±0.1% rule</span>
         </p>
         <ul className="space-y-2">
           {entries.map(e => (
             <li key={e.label} className="flex items-center gap-3 text-xs flex-wrap">
               <span
-                title={e.gapped ? `Session opened at ${open?.toFixed(2)}, beyond this level's ±0.1% band, and never traded back to it. Not a touch under the backtest rule.` : undefined}
+                title={e.gapped
+                  ? `Session opened at ${open?.toFixed(2)}, beyond this level's ±0.1% band, and never traded back to it. Not a touch under the backtest rule.`
+                  : e.near
+                    ? `Price came within ${e.shortBy.toFixed(2)} pts but never printed ${e.value.toFixed(2)}. Inside the ±0.1% band, so the backtest would count it as a touch.`
+                    : undefined}
                 className={`shrink-0 w-14 text-center px-1.5 py-0.5 rounded text-[10px] font-semibold border ${
                 e.hit
                   ? 'text-green-400 bg-green-950/30 border-green-900/40'
-                  : e.gapped
+                  : e.near
+                    ? 'text-sky-300 bg-sky-950/30 border-sky-900/40'
+                    : e.gapped
                     ? 'text-amber-300 bg-amber-950/30 border-amber-900/40'
                     : 'text-slate-500 bg-slate-800/40 border-slate-700/40'
               }`}>
-                {e.hit ? 'HIT' : e.gapped ? 'GAPPED' : 'NOT HIT'}
+                {e.hit ? 'HIT' : e.near ? 'NEAR' : e.gapped ? 'GAPPED' : 'NOT HIT'}
               </span>
               <span className={`shrink-0 text-[10px] uppercase tracking-widest ${e.scope === 'daily' ? 'text-violet-500' : 'text-sky-500'}`}>
                 {e.scope}
@@ -130,14 +149,19 @@ export default function AlmaLog({ data }) {
               {e.gapped && (
                 <span className="text-[10px] font-mono text-amber-400/80">cleared at open {open?.toFixed(2)}</span>
               )}
+              {e.near && (
+                <span className="text-[10px] font-mono text-sky-400/80">{e.shortBy.toFixed(2)} pts short{e.touchedAt ? ` · ${e.touchedAt}` : ''}</span>
+              )}
               {e.hit && (
                 <span className="text-[10px] font-mono text-amber-400/80">
                   {e.touchedAt ?? (e.scope === 'daily' ? 'time unavailable' : 'time unknown (weekly)')}
                 </span>
               )}
-              <span className="font-mono text-slate-400 ml-auto">{e.value.toFixed(2)}</span>
-              <span className="font-mono text-[10px] text-slate-600 shrink-0" title={`±0.1% tolerance band: ${(e.value * (1 - TOL)).toFixed(2)}–${(e.value * (1 + TOL)).toFixed(2)}`}>
-                ±{(e.value * TOL).toFixed(2)}
+              <span className="ml-auto inline-flex items-baseline gap-2 shrink-0">
+                <span className="font-mono text-slate-400">{e.value.toFixed(2)}</span>
+                <span className="font-mono text-[10px] text-slate-600" title={`±0.1% tolerance band: ${(e.value * (1 - TOL)).toFixed(2)}–${(e.value * (1 + TOL)).toFixed(2)}`}>
+                  ±{(e.value * TOL).toFixed(2)}
+                </span>
               </span>
             </li>
           ))}
