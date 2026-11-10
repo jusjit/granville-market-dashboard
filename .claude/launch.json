@@ -1,0 +1,19 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dashboard-vite",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "--port", "5173"],
+      "port": 5173,
+      "cwd": "C:\\Users\\jusji\\Claude Code\\granville-market-dashboard"
+    },
+    {
+      "name": "dashboard-api",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["local-api-server.mjs"],
+      "port": 3001,
+      "cwd": "C:\\Users\\jusji\\Claude Code\\granville-market-dashboard"
+    }
+  ]
+}
