@@ -1,11 +1,11 @@
 name: Reference Data Snapshots
 on:
   schedule:
-    # Every 4 hours during RTH (13:25 UTC = 9:25am EDT, 21:05 UTC = 5:05pm EDT)
+    # Every 4 hours during RTH (14:25 UTC = 9:25am EST, 22:05 UTC = 5:05pm EST)
     # Captures: pre-open (13:25) and post-close (21:05) weekdays
-    # ⚠️ DST: after Nov 1 2026 (EST) shift each hour +1 (14:25/22:05 UTC).
-    - cron: '25 13 * * 1-5'  # ~9:25am EDT pre-open
-    - cron: '5 21 * * 1-5'   # ~5:05pm EDT post-close
+    # ⚠️ DST: on Mar 14 2027 (EDT) shift each hour -1 (13:25/21:05 UTC).
+    - cron: '25 14 * * 1-5'  # ~9:25am EST pre-open
+    - cron: '5 22 * * 1-5'   # ~5:05pm EST post-close
   workflow_dispatch:
 
 jobs:

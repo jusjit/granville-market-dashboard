@@ -1,13 +1,13 @@
 name: Vol Surface Snapshots
 on:
   schedule:
-    # Every 2h during RTH (13:30–20:30 UTC = 9:30am–4:30pm EDT), weekdays.
-    # ⚠️ DST: after Nov 1 2026 (EST) shift each hour +1 (14/16/18/20/21 UTC).
-    - cron: '30 13 * * 1-5'  # ~9:30am EDT open
-    - cron: '30 15 * * 1-5'  # ~11:30am EDT
-    - cron: '30 17 * * 1-5'  # ~1:30pm EDT
-    - cron: '30 19 * * 1-5'  # ~3:30pm EDT
-    - cron: '5 20 * * 1-5'   # ~4:05pm EDT close
+    # Every 2h during RTH (14:30–21:05 UTC = 9:30am–4:05pm EST), weekdays.
+    # ⚠️ DST: on Mar 14 2027 (EDT) shift each hour -1 (13/15/17/19/20 UTC).
+    - cron: '30 14 * * 1-5'  # ~9:30am EST open
+    - cron: '30 16 * * 1-5'  # ~11:30am EST
+    - cron: '30 18 * * 1-5'  # ~1:30pm EST
+    - cron: '30 20 * * 1-5'  # ~3:30pm EST
+    - cron: '5 21 * * 1-5'   # ~4:05pm EST close
   workflow_dispatch:
 
 jobs:

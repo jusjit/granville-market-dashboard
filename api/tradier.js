@@ -3,10 +3,43 @@
 import { computeVolSurface, lastVolSnapshot } from '../lib/volSurfaceCore.mjs'
 
 // SPX mega-caps whose earnings can move the index enough to show a vol kink.
-const EARNINGS_TICKERS = new Set([
-  'AAPL','MSFT','AMZN','GOOGL','GOOG','META','NVDA','TSLA','BRK.B',
-  'UNH','JPM','V','JNJ','XOM','PG','MA','HD','AVGO','LLY','MRK',
-])
+const EARNINGS_TICKERS = [
+  'AAPL','MSFT','AMZN','GOOGL','META','NVDA','TSLA','BRK.B','AVGO','LLY',
+  'UNH','JPM','V','JNJ','XOM','PG','MA','HD','MRK','WMT',
+  'COST','NFLX','ORCL','AMD','BAC','CRM','ABBV','CVX','GS','CSCO',
+]
+const EARNINGS_CACHE_MS = 6 * 60 * 60 * 1000
+const earningsCache = { at: 0, events: null }
+
+function nextBusinessDay(date) {
+  const d = new Date(`${date}T12:00:00Z`)
+  do { d.setUTCDate(d.getUTCDate() + 1) } while ([0, 6].includes(d.getUTCDay()))
+  return d.toISOString().slice(0, 10)
+}
+
+// Queried per symbol: the bulk /calendar/earnings response is capped at 1500 rows and
+// drops the NEAREST dates first, which silently lost whole earnings seasons.
+async function fetchEarnings(today, horizon, finnhubKey) {
+  if (earningsCache.events && Date.now() - earningsCache.at < EARNINGS_CACHE_MS) return earningsCache.events
+  const events = []
+  let failed = 0
+  for (let i = 0; i < EARNINGS_TICKERS.length; i += 6) {
+    await Promise.all(EARNINGS_TICKERS.slice(i, i + 6).map(symbol =>
+      fetch(`https://finnhub.io/api/v1/calendar/earnings?from=${today}&to=${horizon}&symbol=${encodeURIComponent(symbol)}&token=${finnhubKey}`,
+        { signal: AbortSignal.timeout(5000) })
+        .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() })
+        .then(data => {
+          for (const e of (data.earningsCalendar ?? [])) {
+            // After-close reports move the next session, so they belong to its expiry.
+            events.push({ date: e.hour === 'amc' ? nextBusinessDay(e.date) : e.date, label: symbol })
+          }
+        })
+        .catch(err => { failed++; console.warn(`Finnhub earnings ${symbol} failed: ${err.message}`) })
+    ))
+  }
+  if (!failed) { earningsCache.at = Date.now(); earningsCache.events = events }
+  return events
+}
 
 // Hardcoded calendars — these orgs publish schedules years ahead but have no FRED release.
 const FOMC_DATES = [
@@ -31,7 +64,7 @@ const ISM_SVC_DATES = [
   '2027-11-03','2027-12-03',
 ]
 
-async function fetchEventCalendar(fredKey, finnhubKey) {
+export async function fetchEventCalendar(fredKey, finnhubKey) {
   const today = new Date().toISOString().slice(0, 10)
   const horizon = new Date(Date.now() + 75 * 86400000).toISOString().slice(0, 10)
   const events = []
@@ -78,17 +111,8 @@ async function fetchEventCalendar(fredKey, finnhubKey) {
   // Finnhub: earnings for SPX mega-caps
   if (finnhubKey) {
     fetches.push(
-      fetch(`https://finnhub.io/api/v1/calendar/earnings?from=${today}&to=${horizon}&token=${finnhubKey}`,
-        { signal: AbortSignal.timeout(5000) })
-        .then(r => r.json())
-        .then(data => {
-          for (const e of (data.earningsCalendar ?? [])) {
-            if (EARNINGS_TICKERS.has(e.symbol) && e.date >= today && e.date <= horizon) {
-              events.push({ date: e.date, label: e.symbol })
-            }
-          }
-        })
-        .catch(err => console.warn(`Finnhub earnings fetch failed: ${err.message}`))
+      fetchEarnings(today, horizon, finnhubKey)
+        .then(earnings => events.push(...earnings.filter(e => e.date >= today && e.date <= horizon)))
     )
   }
 
