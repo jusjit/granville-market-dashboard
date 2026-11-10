@@ -136,7 +136,7 @@ Tables: `intraday_posts` (Alma daily levels), `weekly_posts`, `market_data` (SPX
 - Trigger: `.github/workflows/dashboard-snapshot.yml` — 14:25/22:05 UTC weekdays (9:25am/5:05pm EST; market-hours crons shifted +1h on 2026-11-09, shift back -1h on Mar 14 2027 — dashboard and overnight also compare the cron string in their run step). Type comes from `github.event.schedule` (NOT the clock — fixed 2026-10-05 after a delayed close run at 01:43 UTC was misfiled as premarket and 10/05 never reached `market_data`; backfilled manually). curl retries 2× with 30s delay. ⚠️ DST: after Nov 1 2026 change crons to 14:25/22:05 UTC. GH repo secret: SNAPSHOT_SECRET.
 
 ### `api/reference.js` (VX futures + CME FedWatch snapshots — Reference Data panel)
-- POST `/api/reference` — auth `Bearer SNAPSHOT_SECRET`, captures VX futures + FedWatch; called by `.github/workflows/reference-snapshot.yml` at 13:25/21:05 UTC weekdays.
+- POST `/api/reference` — auth `Bearer SNAPSHOT_SECRET`, captures VX futures + FedWatch; called by `.github/workflows/reference-snapshot.yml` at 14:25/22:05 UTC weekdays (EST).
 - GET `/api/reference?limit=N` — returns merged snapshot history from `vix_futures_snapshots` + `fed_watch_snapshots` (default 40, max 100).
 - **VX futures** — scraped from `https://vixcentral.com/` (FastAPI SSR; CBOE delayed data). The page embeds prices as JS variables confirmed via browser DevTools inspection:
   - `var mx = ['Jul','Aug','Sep',...]` — contract month labels (single-quoted, confirmed format)
