@@ -1,100 +1,104 @@
 import { useState } from 'react'
 
 // Kink & event scorecard — descriptive tracking. Rules and definitions: lib/kinkScorecard.mjs.
+// Primary view: VIX1D/VIX9D with the original 15% rule. The event-adjusted rule and VIX1D/VIX
+// are kept as background only.
 
 const fmt = (v, d = 2) => v == null ? '—' : v.toFixed(d)
 const sgn = (v, d = 1) => v == null ? '—' : `${v > 0 ? '+' : ''}${v.toFixed(d)}`
 const md = s => s ? s.slice(5).replace('-', '/') : ''
+const weekday = s => s ? new Date(`${s}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' }) : ''
 
-function Th({ children, title, right = true }) {
-  return <th title={title} className={`py-1 pr-3 font-medium whitespace-nowrap ${right ? 'text-right' : 'text-left'}`}>{children}</th>
-}
-
-function NextSession({ label, n }) {
+function NextSession({ n, baseline }) {
   if (!n) return null
-  const flag = n.neu ? 'flagged (new rule)' : n.orig ? 'flagged (original rule only)' : 'not flagged'
+  const flagged = n.orig
+  const f = baseline?.original?.flagged, o = baseline?.original?.other
   return (
-    <p className="text-[11px] text-slate-400">
-      <span className="text-slate-500">{label}:</span> {md(n.session)}{n.types.length ? ` (${n.types.join(', ')})` : ''} — one-day vol{' '}
-      <span className="font-mono text-slate-200">{sgn(n.premiumPct)}%</span> vs usual,{' '}
-      <span className="font-mono text-slate-200">{sgn(n.vsUsualPct)}%</span> after the usual event premium →{' '}
-      <span className={n.neu ? 'text-amber-300' : n.orig ? 'text-slate-300' : 'text-slate-500'}>{flag}</span>
-    </p>
-  )
-}
-
-function OneDayTable({ data, minDays }) {
-  const rows = []
-  for (const [ratio, label] of [['vix9d', 'VIX1D/VIX9D'], ['vix', 'VIX1D/VIX']]) {
-    for (const [rule, rLabel] of [['new', 'new'], ['original', 'original']]) {
-      for (const period of ['baseline', 'forward']) {
-        const g = data[ratio]?.[period]?.[rule]
-        if (g) rows.push({ key: `${ratio}-${rule}-${period}`, label: `${label} · ${rLabel}`, period, g })
-      }
-    }
-  }
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-[11px] font-mono">
-        <thead>
-          <tr className="text-[10px] text-slate-600 uppercase tracking-widest">
-            <Th right={false}>Ratio · rule</Th>
-            <Th right={false}>Period</Th>
-            <Th>Flagged days</Th>
-            <Th title="Absolute SPX move ÷ VIX1D-implied 1σ. About 0.80 means priced fairly; lower means options were rich.">Move ÷ priced (flag / other)</Th>
-            <Th title="Close-to-close SPX on the flagged day, bp">Next day bp (flag / other)</Th>
-            <Th>Up % flagged</Th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map(({ key, label, period, g }) => (
-            <tr key={key} className={`border-t border-slate-800/40 ${period === 'forward' ? 'text-slate-200' : 'text-slate-500'}`}>
-              <td className="py-1 pr-3 whitespace-nowrap">{label}</td>
-              <td className="py-1 pr-3">{period === 'forward' ? `forward (${g.flagged.n}/${minDays})` : 'baseline'}</td>
-              <td className="py-1 pr-3 text-right">{g.flagged.n}</td>
-              <td className="py-1 pr-3 text-right">{fmt(g.flagged.z)} / {fmt(g.other.z)}</td>
-              <td className="py-1 pr-3 text-right">{sgn(g.flagged.retBp)} / {sgn(g.other.retBp)}</td>
-              <td className="py-1 text-right">{g.flagged.upPct == null ? '—' : `${g.flagged.upPct}%`}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className={`rounded-lg border px-4 py-3 ${flagged ? 'border-amber-800/60 bg-amber-950/20' : 'border-slate-700/60 bg-slate-900/60'}`}>
+      <p className="text-[10px] text-slate-500 uppercase tracking-widest">
+        Next session · {weekday(n.session)} {md(n.session)}{n.types.length ? ` · ${n.types.join(', ')}` : ''}
+      </p>
+      <div className="flex items-baseline gap-3 flex-wrap mt-1">
+        <span className={`text-2xl font-bold ${flagged ? 'text-amber-300' : 'text-slate-200'}`}>
+          {flagged ? 'Flagged' : 'Not flagged'}
+        </span>
+        <span className="text-sm text-slate-300">
+          one-day vol <span className="font-mono font-semibold">{sgn(n.premiumPct)}%</span> vs usual
+          <span className="text-slate-500"> (flag at +15%)</span>
+        </span>
+      </div>
+      {f?.n > 0 && (
+        <p className="text-[11px] text-slate-400 mt-2">
+          Flagged days so far: SPX next day <span className="font-mono text-slate-200">{sgn(f.retBp)} bp</span> vs{' '}
+          <span className="font-mono">{sgn(o.retBp)}</span> on other days, up {f.upPct}% · move ÷ priced{' '}
+          <span className="font-mono">{fmt(f.z)}</span> vs <span className="font-mono">{fmt(o.z)}</span>
+          <span className="text-slate-600"> (baseline, {f.n} days)</span>
+        </p>
+      )}
+      {n.types.length > 0 && (
+        <p className="text-[11px] text-slate-500 mt-1">
+          {n.types.join(', ')} days usually carry extra one-day vol; after that usual premium this one is{' '}
+          <span className="font-mono">{sgn(n.vsUsualPct)}%</span>.
+        </p>
+      )}
     </div>
   )
 }
 
-function SurfaceTable({ surface, minWindows }) {
-  const groups = [['original', 'Kinks, original rule'], ['new', 'Kinks, new rule'], ['event', 'Windows with a macro event'], ['ordinary', 'Ordinary windows']]
+// Label | baseline | forward, three narrow columns that fit a phone.
+function StatRows({ title, forwardLabel, rows }) {
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-[11px] font-mono">
-        <thead>
-          <tr className="text-[10px] text-slate-600 uppercase tracking-widest">
-            <Th right={false}>Group</Th>
-            <Th right={false}>Period</Th>
-            <Th>Finished (pending)</Th>
-            <Th title="Realized vol over the window ÷ its forward vol. 1.0 = priced fairly.">Realized ÷ implied</Th>
-            <Th>SPX up %</Th>
-            <Th>SPX bp/day</Th>
-          </tr>
-        </thead>
-        <tbody>
-          {groups.flatMap(([k, label]) => ['baseline', 'forward'].map(period => {
-            const g = surface[period][k]
-            const kinked = k === 'original' || k === 'new'
-            return (
-              <tr key={k + period} className={`border-t border-slate-800/40 ${period === 'forward' ? 'text-slate-200' : 'text-slate-500'}`}>
-                <td className="py-1 pr-3 whitespace-nowrap">{label}</td>
-                <td className="py-1 pr-3">{period === 'forward' ? (kinked ? `forward (${g.finished}/${minWindows})` : 'forward') : 'baseline'}</td>
-                <td className="py-1 pr-3 text-right">{g.finished} ({g.pending})</td>
-                <td className="py-1 pr-3 text-right">{fmt(g.realizedOverImplied)}</td>
-                <td className="py-1 pr-3 text-right">{g.upPct == null ? '—' : `${g.upPct}%`}</td>
-                <td className="py-1 text-right">{sgn(g.bpPerDay)}</td>
-              </tr>
-            )
-          }))}
-        </tbody>
-      </table>
+    <div>
+      <p className="text-[10px] text-slate-500 uppercase tracking-widest mb-1">{title}</p>
+      <div className="grid grid-cols-[1fr_auto_auto] gap-x-4 text-[11px]">
+        <span />
+        <span className="text-right text-[10px] text-slate-600 uppercase tracking-widest">Baseline</span>
+        <span className="text-right text-[10px] text-slate-400 uppercase tracking-widest">{forwardLabel}</span>
+        {rows.map(([label, base, fwd]) => (
+          <div key={label} className="contents">
+            <span className="py-1 border-t border-slate-800/50 text-slate-400">{label}</span>
+            <span className="py-1 border-t border-slate-800/50 text-right font-mono text-slate-500">{base}</span>
+            <span className="py-1 border-t border-slate-800/50 text-right font-mono text-slate-200">{fwd}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+const pair = (a, b, d) => (a == null && b == null) ? '—' : `${d === 'bp' ? sgn(a) : fmt(a)} / ${d === 'bp' ? sgn(b) : fmt(b)}`
+
+function Background({ data }) {
+  const [open, setOpen] = useState(false)
+  const line = (label, g) => g && (
+    <li key={label}>
+      {label}: {g.flagged.n} flagged, next day {sgn(g.flagged.retBp)} vs {sgn(g.other.retBp)} bp, up {g.flagged.upPct ?? '—'}%, move ÷ priced {fmt(g.flagged.z)} vs {fmt(g.other.z)}
+    </li>
+  )
+  const s = data.surface
+  return (
+    <div>
+      <button onClick={() => setOpen(o => !o)} className="text-[10px] text-slate-600 hover:text-slate-400 uppercase tracking-widest">
+        {open ? '▾' : '▸'} Background: other versions
+      </button>
+      {open && (
+        <ul className="mt-2 space-y-1 text-[11px] text-slate-500 leading-relaxed">
+          {line('VIX1D/VIX9D, event-adjusted rule (baseline)', data.oneDay.vix9d?.baseline?.new)}
+          {line('VIX1D/VIX9D, event-adjusted rule (forward)', data.oneDay.vix9d?.forward?.new)}
+          {line('VIX1D/VIX, 15% rule (baseline)', data.oneDay.vix?.baseline?.original)}
+          {line('VIX1D/VIX, event-adjusted rule (baseline)', data.oneDay.vix?.baseline?.new)}
+          {data.oneDay.vix?.next && (
+            <li>VIX1D/VIX next session: {sgn(data.oneDay.vix.next.premiumPct)}% vs usual ({data.oneDay.vix.next.orig ? 'flagged' : 'not flagged'})</li>
+          )}
+          <li>
+            Surface kinks, event-adjusted rule (baseline): {s.baseline.new.finished} finished, realized ÷ implied {fmt(s.baseline.new.realizedOverImplied)},
+            up {s.baseline.new.upPct ?? '—'}%, {sgn(s.baseline.new.bpPerDay)} bp/day
+          </li>
+          <li>
+            Windows with a macro event (baseline): {s.baseline.event.finished} finished, realized ÷ implied {fmt(s.baseline.event.realizedOverImplied)}
+          </li>
+        </ul>
+      )}
     </div>
   )
 }
@@ -117,68 +121,73 @@ export default function KinkScorecard() {
     }
   }
 
+  const v9 = data?.oneDay?.vix9d
+  const s = data?.surface
+  const minD = data?.thresholds?.forwardMinDays, minW = data?.thresholds?.forwardMinWindows
+  const kinks = s?.flagged?.filter(w => w.rules.includes('original')) ?? []
+
   return (
     <div className="rounded-xl border border-slate-800 bg-slate-900/40 mt-3">
       <button onClick={toggle} className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left">
         <span className="text-xs font-semibold text-slate-400 uppercase tracking-widest">
           {open ? '▾' : '▸'} Kink &amp; event scorecard
-          <span className="ml-2 text-[10px] font-normal normal-case tracking-normal text-slate-600 border border-slate-800 rounded px-1.5 py-0.5">descriptive · tracking since 11/09</span>
         </span>
+        <span className="text-[10px] text-slate-600 border border-slate-800 rounded px-1.5 py-0.5">descriptive · since 11/09</span>
       </button>
       {open && (
-        <div className="px-4 pb-4 space-y-4">
+        <div className="px-4 pb-4 space-y-5">
           {loading && <p className="text-xs text-slate-600 animate-pulse">Computing scorecard…</p>}
           {error && <p className="text-xs text-red-400">Scorecard unavailable — {error}</p>}
-          {data && (
+          {data && v9 && (
             <>
-              <div className="space-y-1">
-                <NextSession label="VIX1D/VIX9D" n={data.oneDay.vix9d?.next} />
-                <NextSession label="VIX1D/VIX" n={data.oneDay.vix?.next} />
-              </div>
+              <NextSession n={v9.next} baseline={v9.baseline} />
 
-              <div>
-                <p className="text-[10px] text-slate-600 uppercase tracking-widest mb-1">One-day premium · data through {md(data.oneDayDataThrough)}</p>
-                <OneDayTable data={data.oneDay} minDays={data.thresholds.forwardMinDays} />
-              </div>
+              <StatRows
+                title={`One-day vol flags · VIX1D/VIX9D · through ${md(data.oneDayDataThrough)}`}
+                forwardLabel={`Forward ${v9.forward.original.flagged.n}/${minD}`}
+                rows={[
+                  ['Flagged days', v9.baseline.original.flagged.n, v9.forward.original.flagged.n],
+                  ['Next day bp, flagged / other', pair(v9.baseline.original.flagged.retBp, v9.baseline.original.other.retBp, 'bp'), pair(v9.forward.original.flagged.retBp, v9.forward.original.other.retBp, 'bp')],
+                  ['Up %, flagged', v9.baseline.original.flagged.upPct == null ? '—' : `${v9.baseline.original.flagged.upPct}%`, v9.forward.original.flagged.upPct == null ? '—' : `${v9.forward.original.flagged.upPct}%`],
+                  ['Move ÷ priced, flagged / other', pair(v9.baseline.original.flagged.z, v9.baseline.original.other.z), pair(v9.forward.original.flagged.z, v9.forward.original.other.z)],
+                ]}
+              />
 
-              <div>
-                <p className="text-[10px] text-slate-600 uppercase tracking-widest mb-1">Surface kinks · data through {md(data.surface.dataThrough)}</p>
-                <SurfaceTable surface={data.surface} minWindows={data.thresholds.forwardMinWindows} />
-              </div>
+              <StatRows
+                title={`Surface kinks · through ${md(s.dataThrough)}`}
+                forwardLabel={`Forward ${s.forward.original.finished}/${minW}`}
+                rows={[
+                  ['Kinked windows finished', s.baseline.original.finished, `${s.forward.original.finished}${s.forward.original.pending ? ` (+${s.forward.original.pending})` : ''}`],
+                  ['Realized ÷ implied, kinks / ordinary', pair(s.baseline.original.realizedOverImplied, s.baseline.ordinary.realizedOverImplied), pair(s.forward.original.realizedOverImplied, s.forward.ordinary.realizedOverImplied)],
+                  ['SPX up %, kinks', s.baseline.original.upPct == null ? '—' : `${s.baseline.original.upPct}%`, s.forward.original.upPct == null ? '—' : `${s.forward.original.upPct}%`],
+                  ['SPX bp/day, kinks / ordinary', pair(s.baseline.original.bpPerDay, s.baseline.ordinary.bpPerDay, 'bp'), pair(s.forward.original.bpPerDay, s.forward.ordinary.bpPerDay, 'bp')],
+                ]}
+              />
 
-              {data.surface.flagged.length > 0 && (
+              {kinks.length > 0 && (
                 <div>
-                  <p className="text-[10px] text-slate-600 uppercase tracking-widest mb-1">Flagged windows (latest first)</p>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-[11px] font-mono">
-                      <thead>
-                        <tr className="text-[10px] text-slate-600 uppercase tracking-widest">
-                          <Th right={false}>Window</Th><Th right={false}>Rule</Th><Th right={false}>Events</Th><Th>Fwd vol</Th><Th>Realized ÷ implied</Th><Th>SPX bp</Th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {data.surface.flagged.map(w => (
-                          <tr key={w.near + w.far} className="border-t border-slate-800/40 text-slate-300">
-                            <td className="py-1 pr-3 whitespace-nowrap">{md(w.near)}→{md(w.far)}</td>
-                            <td className="py-1 pr-3">{w.rules.join(' + ')}</td>
-                            <td className="py-1 pr-3 text-slate-500">{w.events?.length ? w.events.join(', ') : '—'}</td>
-                            <td className="py-1 pr-3 text-right">{fmt(w.forwardVolPct, 1)}%</td>
-                            <td className="py-1 pr-3 text-right">{w.finished ? fmt(w.realizedOverImplied) : <span className="text-slate-600">pending</span>}</td>
-                            <td className="py-1 text-right">{w.finished ? sgn(w.retBp, 0) : '—'}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  <p className="text-[10px] text-slate-500 uppercase tracking-widest mb-1">Recent kinks</p>
+                  <ul className="text-[11px] font-mono">
+                    {kinks.slice(0, 8).map(w => (
+                      <li key={w.near + w.far} className="flex flex-wrap items-baseline gap-x-3 py-1 border-t border-slate-800/50 text-slate-300">
+                        <span>{md(w.near)}→{md(w.far)}</span>
+                        <span className="text-slate-500">fwd {fmt(w.forwardVolPct, 1)}%</span>
+                        {w.finished
+                          ? <><span>{fmt(w.realizedOverImplied)}× priced</span><span className={w.retBp >= 0 ? 'text-emerald-400' : 'text-red-400'}>{sgn(w.retBp, 0)} bp</span></>
+                          : <span className="text-slate-600">pending</span>}
+                        {w.events?.length > 0 && <span className="text-slate-500 font-sans">{w.events.join(', ')}</span>}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
 
+              <Background data={data} />
+
               <p className="text-[10px] text-slate-600 leading-relaxed">
-                Rules fixed 11/09; only the forward rows count as evidence. The baseline is where the rules and the direction
-                pattern were found, so it will look better than what follows. Descriptive until the forward sample reaches{' '}
-                {data.thresholds.forwardMinDays} flagged days and {data.thresholds.forwardMinWindows} finished kinked windows.
-                Original rule = 15% above the usual level / neighbours; new rule = the same after removing the usual macro-event premium.
-                Not trade signals.
+                Flag: one-day vol 15% above its usual level vs VIX9D (or a surface date 15% above its neighbours). Only forward
+                numbers count; the baseline is where these patterns were found and will look better than what follows.
+                Descriptive until {minD} forward flagged days and {minW} finished kinks. Not trade signals.
               </p>
             </>
           )}
