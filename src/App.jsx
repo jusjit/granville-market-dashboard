@@ -6,6 +6,7 @@ import { fetchAlmaData } from './lib/alma'
 import AlmaPanel, { AlmaActiveRules } from './components/AlmaPanel'
 import AlmaLog from './components/AlmaLog'
 import VolSurfacePanel from './components/VolSurfacePanel'
+import KinkScorecard from './components/KinkScorecard'
 import { fetchVolSurface } from './lib/volsurface'
 import ReferenceDataPanel from './components/ReferenceDataPanel'
 import { fetchReferenceLatest, fetchOvernightContext } from './lib/referencedata'
@@ -233,6 +234,7 @@ export default function App() {
               .then(d => { setVolData(d); setVolLoading(false) })
               .catch(err => { setVolError(err.message); setVolLoading(false) })
           }} />
+          <KinkScorecard />
         </section>
 
         {/* Section 3 — AI Synthesis */}

@@ -3,6 +3,7 @@
 // GET  /api/vol-history — Return recent snapshots for the history slider
 import { computeVolSurface, lastVolSnapshot } from '../lib/volSurfaceCore.mjs'
 import { fetchEventCalendar } from './tradier.js'
+import { computeScorecard } from '../lib/kinkScorecard.mjs'
 
 // Neo-vix rows hold every expiry out to 45 days. The slider compares against the live curve
 // (first 4 + Fridays), so thin to that set and recompute forwards across the kept expiries.
@@ -54,6 +55,17 @@ export default async function handler(req, res) {
       return res.status(200).json({ success: true, captured_at: surface.updatedAt, expiries: surface.points.length })
     } catch (err) {
       return res.status(500).json({ success: false, error: err.message })
+    }
+  }
+
+  // GET ?type=scorecard — kink & event scorecard (descriptive tracking, rules in lib/kinkScorecard.mjs)
+  if (req.method === 'GET' && req.query.type === 'scorecard') {
+    try {
+      const card = await computeScorecard({ supabaseUrl: url, supabaseKey: sbKey, fredKey: process.env.FRED_KEY })
+      res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate=600')
+      return res.status(200).json(card)
+    } catch (err) {
+      return res.status(500).json({ error: err.message })
     }
   }
 
