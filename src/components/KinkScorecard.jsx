@@ -150,6 +150,9 @@ export default function KinkScorecard() {
                   ['Next day bp, flagged / other', pair(v9.baseline.original.flagged.retBp, v9.baseline.original.other.retBp, 'bp'), pair(v9.forward.original.flagged.retBp, v9.forward.original.other.retBp, 'bp')],
                   ['Up %, flagged', v9.baseline.original.flagged.upPct == null ? '—' : `${v9.baseline.original.flagged.upPct}%`, v9.forward.original.flagged.upPct == null ? '—' : `${v9.forward.original.flagged.upPct}%`],
                   ['Move ÷ priced, flagged / other', pair(v9.baseline.original.flagged.z, v9.baseline.original.other.z), pair(v9.forward.original.flagged.z, v9.forward.original.other.z)],
+                  ['Event days, flagged / not', `${v9.baseline.eventFlagged?.n ?? '—'} / ${v9.baseline.eventNotFlagged?.n ?? '—'}`, `${v9.forward.eventFlagged?.n ?? '—'} / ${v9.forward.eventNotFlagged?.n ?? '—'}`],
+                  ['Event next day bp, flagged / not', pair(v9.baseline.eventFlagged?.retBp, v9.baseline.eventNotFlagged?.retBp, 'bp'), pair(v9.forward.eventFlagged?.retBp, v9.forward.eventNotFlagged?.retBp, 'bp')],
+                  ['Event move ÷ priced, flagged / not', pair(v9.baseline.eventFlagged?.z, v9.baseline.eventNotFlagged?.z), pair(v9.forward.eventFlagged?.z, v9.forward.eventNotFlagged?.z)],
                 ]}
               />
 
@@ -161,6 +164,9 @@ export default function KinkScorecard() {
                   ['Realized ÷ implied, kinks / ordinary', pair(s.baseline.original.realizedOverImplied, s.baseline.ordinary.realizedOverImplied), pair(s.forward.original.realizedOverImplied, s.forward.ordinary.realizedOverImplied)],
                   ['SPX up %, kinks', s.baseline.original.upPct == null ? '—' : `${s.baseline.original.upPct}%`, s.forward.original.upPct == null ? '—' : `${s.forward.original.upPct}%`],
                   ['SPX bp/day, kinks / ordinary', pair(s.baseline.original.bpPerDay, s.baseline.ordinary.bpPerDay, 'bp'), pair(s.forward.original.bpPerDay, s.forward.ordinary.bpPerDay, 'bp')],
+                  ['Event windows, kinked / not', `${s.baseline.eventKink?.finished ?? '—'} / ${s.baseline.eventNoKink?.finished ?? '—'}`, `${s.forward.eventKink?.finished ?? '—'} / ${s.forward.eventNoKink?.finished ?? '—'}`],
+                  ['Event realized ÷ implied, kinked / not', pair(s.baseline.eventKink?.realizedOverImplied, s.baseline.eventNoKink?.realizedOverImplied), pair(s.forward.eventKink?.realizedOverImplied, s.forward.eventNoKink?.realizedOverImplied)],
+                  ['Event SPX bp/day, kinked / not', pair(s.baseline.eventKink?.bpPerDay, s.baseline.eventNoKink?.bpPerDay, 'bp'), pair(s.forward.eventKink?.bpPerDay, s.forward.eventNoKink?.bpPerDay, 'bp')],
                 ]}
               />
 
