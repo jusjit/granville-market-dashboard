@@ -16,7 +16,7 @@ function NextSession({ n, baseline }) {
   return (
     <div className={`rounded-lg border px-4 py-3 ${flagged ? 'border-amber-800/60 bg-amber-950/20' : 'border-slate-700/60 bg-slate-900/60'}`}>
       <p className="text-[10px] text-slate-500 uppercase tracking-widest">
-        Next session · {weekday(n.session)} {md(n.session)}{n.types.length ? ` · ${n.types.join(', ')}` : ''}
+        Next session · {weekday(n.session)} {md(n.session)}{[...n.types, ...(n.earnings ?? [])].length ? ` · ${[...n.types, ...(n.earnings ?? [])].join(', ')}` : ''}
       </p>
       <div className="flex items-baseline gap-3 flex-wrap mt-1">
         <span className={`text-2xl font-bold ${flagged ? 'text-amber-300' : 'text-slate-200'}`}>
@@ -153,6 +153,9 @@ export default function KinkScorecard() {
                   ['Event days, flagged / not', `${v9.baseline.eventFlagged?.n ?? '—'} / ${v9.baseline.eventNotFlagged?.n ?? '—'}`, `${v9.forward.eventFlagged?.n ?? '—'} / ${v9.forward.eventNotFlagged?.n ?? '—'}`],
                   ['Event next day bp, flagged / not', pair(v9.baseline.eventFlagged?.retBp, v9.baseline.eventNotFlagged?.retBp, 'bp'), pair(v9.forward.eventFlagged?.retBp, v9.forward.eventNotFlagged?.retBp, 'bp')],
                   ['Event move ÷ priced, flagged / not', pair(v9.baseline.eventFlagged?.z, v9.baseline.eventNotFlagged?.z), pair(v9.forward.eventFlagged?.z, v9.forward.eventNotFlagged?.z)],
+                  ['Earnings days, flagged / not', '—', `${v9.forward.earnFlagged?.n ?? '—'} / ${v9.forward.earnNotFlagged?.n ?? '—'}`],
+                  ['Earnings next day bp, flagged / not', '—', pair(v9.forward.earnFlagged?.retBp, v9.forward.earnNotFlagged?.retBp, 'bp')],
+                  ['Earnings move ÷ priced, flagged / not', '—', pair(v9.forward.earnFlagged?.z, v9.forward.earnNotFlagged?.z)],
                 ]}
               />
 
@@ -167,6 +170,9 @@ export default function KinkScorecard() {
                   ['Event windows, kinked / not', `${s.baseline.eventKink?.finished ?? '—'} / ${s.baseline.eventNoKink?.finished ?? '—'}`, `${s.forward.eventKink?.finished ?? '—'} / ${s.forward.eventNoKink?.finished ?? '—'}`],
                   ['Event realized ÷ implied, kinked / not', pair(s.baseline.eventKink?.realizedOverImplied, s.baseline.eventNoKink?.realizedOverImplied), pair(s.forward.eventKink?.realizedOverImplied, s.forward.eventNoKink?.realizedOverImplied)],
                   ['Event SPX bp/day, kinked / not', pair(s.baseline.eventKink?.bpPerDay, s.baseline.eventNoKink?.bpPerDay, 'bp'), pair(s.forward.eventKink?.bpPerDay, s.forward.eventNoKink?.bpPerDay, 'bp')],
+                  ['Earnings windows, kinked / not', '—', `${s.forward.earnKink?.finished ?? '—'} / ${s.forward.earnNoKink?.finished ?? '—'}${s.forward.earnNoKink?.pending ? ` (+${s.forward.earnNoKink.pending})` : ''}`],
+                  ['Earnings realized ÷ implied, kinked / not', '—', pair(s.forward.earnKink?.realizedOverImplied, s.forward.earnNoKink?.realizedOverImplied)],
+                  ['Earnings SPX bp/day, kinked / not', '—', pair(s.forward.earnKink?.bpPerDay, s.forward.earnNoKink?.bpPerDay, 'bp')],
                 ]}
               />
 
@@ -193,7 +199,8 @@ export default function KinkScorecard() {
               <p className="text-[10px] text-slate-600 leading-relaxed">
                 Flag: one-day vol 15% above its usual level vs VIX9D (or a surface date 15% above its neighbours). Only forward
                 numbers count; the baseline is where these patterns were found and will look better than what follows.
-                Descriptive until {minD} forward flagged days and {minW} finished kinks. Not trade signals.
+                Descriptive until {minD} forward flagged days and {minW} finished kinks. Event rows are FOMC/CPI/NFP; earnings
+                rows are {data.earningsTickers?.join(', ')}, forward only (no earnings history before 11/09). Not trade signals.
               </p>
             </>
           )}
